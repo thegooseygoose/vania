@@ -1,0 +1,11 @@
+# Godot 4 editor & import cache (regenerated on open)
+.godot/
+
+# Build / export artifacts
+/dist/
+/web_build/
+*.zip
+
+# OS junk
+Thumbs.db
+.DS_Store
