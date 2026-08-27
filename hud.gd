@@ -13,6 +13,12 @@ var _canvas: Control
 var _msg_text := ""
 var _msg_hide_ms := 0
 
+# ---- minimap (fog-of-war) ----
+var map_seen := {}             # Vector2i cell -> true : tiles revealed by exploring
+var _map_level := -999         # which level file the current fog belongs to (reset on change)
+var _map_rect := Rect2i()      # the level's terrain bounds (px-per-tile scale is derived from it)
+const MAP_REVEAL := 7          # tiles revealed in each direction around Mario
+
 
 func _ready() -> void:
 	font = PixelFont.new()
@@ -60,6 +66,10 @@ func _paint(ci: CanvasItem) -> void:
 	font.draw_text(ci, Vector2(159, 21), main.world_label, 1.0, Color.WHITE)
 	font.draw_text(ci, Vector2(206, 11), "TIME", 1.0, Color.WHITE)
 	font.draw_text(ci, Vector2(206, 21), main.time_string(), 1.0, Color.WHITE)
+
+	# fog-of-war minimap (top-right) during normal play
+	if main.game_state == "play" and not main.show_level_card and not main.attract_mode:
+		_paint_minimap(ci)
 
 	# attract/demo mode banner
 	if main.attract_mode:
@@ -143,6 +153,62 @@ func _paint(ci: CanvasItem) -> void:
 	# pause menu (drawn last so it sits on top of everything)
 	if main.paused:
 		_paint_pause(ci, w)
+
+
+func reset_map() -> void:
+	map_seen.clear()
+	_map_level = -999
+
+
+# A small fog-of-war minimap in the top-right: the whole level scaled to fit a fixed box,
+# revealed as Mario explores. Walls brown, water blue, lava red, hooks yellow, goal gold,
+# Mario a blinking green blip.
+func _paint_minimap(ci: CanvasItem) -> void:
+	if main.terrain == null or main.player == null:
+		return
+	var tile: float = float(main.TILE)
+	if _map_level != main._level_file:                 # fog belongs to one level; reset on change
+		_map_level = main._level_file
+		map_seen.clear()
+		_map_rect = main.terrain.get_used_rect()
+	var rect := _map_rect
+	if rect.size.x <= 0 or rect.size.y <= 0:
+		return
+	var pc := Vector2i(int(floor(main.player.global_position.x / tile)), int(floor(main.player.global_position.y / tile)))
+	for dy in range(-MAP_REVEAL, MAP_REVEAL + 1):       # reveal a radius around Mario
+		for dx in range(-MAP_REVEAL, MAP_REVEAL + 1):
+			map_seen[pc + Vector2i(dx, dy)] = true
+	var boxw := 80.0
+	var boxh := 50.0
+	var scale: float = minf(boxw / float(rect.size.x), boxh / float(rect.size.y))
+	var mw: float = float(rect.size.x) * scale
+	var mh: float = float(rect.size.y) * scale
+	var ox: float = float(main.VIEW_W) - mw - 5.0
+	var oy := 30.0
+	ci.draw_rect(Rect2(ox - 2, oy - 2, mw + 4, mh + 4), Color(0.9, 0.9, 1.0, 0.85))   # frame
+	ci.draw_rect(Rect2(ox - 1, oy - 1, mw + 2, mh + 2), Color(0.06, 0.06, 0.12, 0.85)) # backdrop
+	var cs: float = maxf(1.0, ceil(scale))
+	for cell in map_seen:
+		if not rect.has_point(cell):
+			continue
+		var mx: float = ox + float(cell.x - rect.position.x) * scale
+		var my: float = oy + float(cell.y - rect.position.y) * scale
+		var src: int = main.terrain.get_cell_source_id(cell)
+		if src < 0:
+			ci.draw_rect(Rect2(mx, my, cs, cs), Color(0.26, 0.28, 0.40, 0.55))   # explored open space
+			continue
+		var ax: int = main.terrain.get_cell_atlas_coords(cell).x
+		var col := Color(0.72, 0.55, 0.32)                                       # wall / terrain
+		if ax == 19: col = Color(1.0, 0.85, 0.2)                                 # goal
+		elif ax == 45 or ax == 46: col = Color(0.42, 0.62, 1.0)                  # water
+		elif ax == 28 or ax == 29: col = Color(0.95, 0.35, 0.2)                  # lava
+		elif ax == 47: col = Color(1.0, 1.0, 0.35)                               # hook
+		ci.draw_rect(Rect2(mx, my, cs, cs), col)
+	# Mario blip (blinks so it stands out)
+	if fmod(main.qanim_phase, 0.5) < 0.35:
+		var px: float = ox + float(pc.x - rect.position.x) * scale
+		var py: float = oy + float(pc.y - rect.position.y) * scale
+		ci.draw_rect(Rect2(px - 1, py - 1, cs + 2, cs + 2), Color(0.3, 1.0, 0.4))
 
 
 func _paint_pause(ci: CanvasItem, w: float) -> void:

@@ -46,7 +46,7 @@ var has_boomerang := false      # BOOMERANG: press X to throw a returning boomer
 var has_waterwalk := false      # W: walk on top of water (it becomes solid footing; no sink/slow)
 var riding := false             # on the bike — lava becomes solid footing you drive across
 var bike = null                # the Bike node currently being ridden
-const BIKE_MOVE := 0.72         # bike speed of normal (doubled from 0.36)
+const BIKE_MOVE := 1.08         # bike speed of normal (0.72 +50%)
 const BIKE_MOUNT_RANGE := 28.0  # how close you must be to a bike to press the button and mount
 var boomerang                   # the one active boomerang (only one at a time)
 var wall_dir := 0               # -1 wall on left, +1 wall on right, 0 none (wall-jump)
@@ -65,20 +65,18 @@ var extend_time := 0.0
 const EXTEND_TIME := 0.24       # seconds for the claw to fly out and reach the hook (half speed = visible throw)
 const GRAPPLE_RANGE := 85.0      # how close you must be to latch on (= ROPE_MAX, so you swing at the
 								 # real distance you grabbed from — no snap/reel-in on latch)
-const SWING_GRAV := 2000.0       # gravity while swinging (builds speed at the bottom)
-const SWING_ACCEL := 1400.0      # left/right pump strength
-const SWING_MAX := 360.0         # cap swing speed (keeps the fling from overshooting)
+const SWING_GRAV := 1000.0       # gravity while swinging (halved — slower, gentler swing)
+const SWING_ACCEL := 700.0       # left/right pump strength (halved)
+const SWING_MAX := 180.0         # cap swing speed (halved = swing at half speed)
 const ROPE_MIN := 40.0
 const ROPE_MAX := 85.0           # longest swing the chain art can cover (art chains are ~88px); the
 								 # rope is the ACTUAL grab distance, capped here so the chain always reaches
 const FIST_X := 5.0              # Mario's raised-hand offset from centre (jump-pose fist at tex(13,2));
 const FIST_Y := -16.0            # x flips with facing. The rope pivots and the chain ends at THIS
 								 # hand pixel, so it visibly grabs his fist instead of floating nearby.
-const FLING_MIN := 250.0         # launch speed floor (a powerful leap, ~3x run)
-const FLING_MAX := 340.0         # ...ceiling — strong, clears far more than a normal jump
-const FLING_GRAV := 0.5          # a FLATTER arc so it carries across a big gap (still arcs down)
-const FLING_DRAG := 120.0        # horizontal holds through the leap
-const GLIDE_FALL := 190.0        # moderate fall (not feathery, not a fast drop)
+const FLING_MAX := 360.0         # cap on release speed (= SWING_MAX, so a full swing carries fully)
+const FLING_GRAV := 0.9          # only a SLIGHT gravity ease so the arc carries — not floaty
+const FLING_DRAG := 60.0         # light drag: horizontal momentum carries you across the gap
 var fling_t := 0.0               # after a swing release, keep the flung momentum this long
 var air_jump_used := false      # spent the mid-air jump this airtime
 var air_was_submerged := false  # was in water since last on the ground → no double-jump out of it
@@ -654,8 +652,8 @@ func _update_alive(delta: float) -> void:
 				g *= main.FALL_GRAV_SCALE      # softer descent (SMB1 feel); height-neutral
 			fall_cap = main.MAX_FALL
 			if fling_t > 0.0:
-				g *= FLING_GRAV                # gentle glide right after a grapple launch
-				fall_cap = GLIDE_FALL          # ...and a slow, feather-like fall
+				g *= FLING_GRAV                # only a SLIGHT gravity ease so the arc carries across
+											   # (no feather-fall — it lands naturally, not floaty)
 		velocity.y = minf(velocity.y + g * delta, fall_cap)
 		if velocity.y >= 0.0:
 			stomp_bounce = false           # bounce arc peaked → normal control resumes
@@ -844,15 +842,13 @@ func _grapple_physics(delta: float) -> void:
 	queue_redraw()
 	if not (Input.is_action_pressed("grapple") or Input.is_action_pressed("shoot")):
 		grappling = false
-		# LAUNCH mostly SIDEWAYS in the direction you're swinging (not up): take the
-		# HORIZONTAL swing speed, floor/ceiling it, and add only a small arc pop so you
-		# fly OUT to clear the blocks, then arc down — never a big vertical jump.
-		var hd := signf(velocity.x)
-		if hd == 0.0:
-			hd = float(facing)
-		velocity.x = hd * clampf(absf(velocity.x), FLING_MIN, FLING_MAX)
-		velocity.y = -110.0                                  # small arc pop OUT, not a jump UP
-		fling_t = 1.1                                         # momentum carries the whole leap
+		# NATURAL PENDULUM RELEASE: let go with your OWN swing momentum, like a real rope. A hard,
+		# low swing flings you fast and flat ACROSS a gap; a weak one doesn't. Keep the swing's
+		# actual velocity (just cap the extreme + guarantee a small up so you clear the lip). No
+		# fixed speed, no big pop = predictable and tied to how you swung, not random.
+		velocity.x = clampf(velocity.x, -FLING_MAX, FLING_MAX)
+		velocity.y = minf(velocity.y, -60.0)                 # keep upswing momentum; else a small hop up
+		fling_t = 0.6                                         # briefly hold the horizontal through the arc
 		jump_held = true
 		air_jump_used = false
 		main.sfx("jump_big" if (big or fire) else "jump_small")
@@ -1273,6 +1269,9 @@ func kill(from_pit := false) -> void:
 	dead_timer = 0.0
 	died_by_pit = from_pit
 	death_launched = false
+	grappling = false                    # drop the grapple so the claw/chain doesn't stay drawn on death
+	extending = false
+	queue_redraw()
 	set_collision_mask_value(1, false)   # fall through the world
 	if not from_pit:
 		velocity = Vector2.ZERO               # hold the death pose in place first

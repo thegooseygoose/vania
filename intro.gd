@@ -35,7 +35,7 @@ var menu_img: Texture2D        # main1.png — START GAME / LEVEL RECORDS / (loc
 var menu2_img: Texture2D       # main2.png — the UNLOCKED version (LEVEL SELECT active)
 var menu_rect: Rect2
 var menu_sel := 0             # 0 = START GAME, 1 = LEVEL RECORDS, 2 = LEVEL SELECT
-var mm_sel := 0              # Vania main menu: 0 = LEVEL 1, 1 = LEVEL 2
+var mm_sel := 2              # Vania main menu default selection: 0=LEVEL 1, 1=LEVEL 2, 2=LEVEL 3
 var levelsel_idx := 0        # highlighted cell on the LEVEL SELECT grid (0..11)
 var levelsel_back := "menu"  # phase to return to from LEVEL SELECT ("menu" or "file" for the debug cheat)
 var _n_count := 0            # consecutive "N" presses on the file screen (NNNNN = debug level select)
@@ -193,23 +193,25 @@ func _mainmenu_input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
 			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN:
-				mm_sel = (mm_sel + 1) % 2
+				mm_sel = (mm_sel + 1) % 3
 			JOY_BUTTON_START, JOY_BUTTON_A:
 				confirm = true
 		queue_redraw()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_UP, KEY_DOWN:
-				mm_sel = (mm_sel + 1) % 2
+				mm_sel = (mm_sel + 1) % 3
 			KEY_1:
 				mm_sel = 0; confirm = true
 			KEY_2:
 				mm_sel = 1; confirm = true
+			KEY_3:
+				mm_sel = 2; confirm = true
 			KEY_ENTER, KEY_KP_ENTER, KEY_P, KEY_SPACE:
 				confirm = true
 		queue_redraw()
 	if confirm:
-		Main.debug_start_level = 1 if mm_sel == 0 else 2
+		Main.debug_start_level = mm_sel + 1    # 0->1-1, 1->1-2, 2->1-3
 		_start_game()
 
 
@@ -397,8 +399,8 @@ func _draw() -> void:
 func _draw_mainmenu() -> void:
 	var w := float(VIEW_W)
 	font.draw_text(self, Vector2(0, 56), "VANIA", 3.0, C_PURPLE, w)
-	var opts := ["LEVEL 1", "LEVEL 2"]
-	for i in 2:
+	var opts := ["LEVEL 1", "LEVEL 2", "LEVEL 3"]
+	for i in opts.size():
 		var y := 118.0 + i * 28.0
 		var sel: bool = (i == mm_sel)
 		if sel:

@@ -105,6 +105,7 @@ const ENEMY_SPD := 34.0
 # ---- level (loaded from the Level1 scene) --------------------------------
 const LEVEL_SCENE := preload("res://Level1.tscn")   # 1-1 (your sandbox)
 const LEVEL2_SCENE := preload("res://Level2.tscn")  # 1-2 (the power-up gauntlet)
+const LEVEL3_SCENE := preload("res://Level3.tscn")  # 1-3 (the metroidvania loop)
 const SOURCE_ID := 0
 
 # =========================================================================
@@ -117,6 +118,7 @@ const SOURCE_ID := 0
 const LEVEL_ORDER := [
 	[1, "1-1"],   # your sandbox level
 	[2, "1-2"],   # the power-up gauntlet
+	[3, "1-3"],   # the metroidvania loop (all power-ups + backtracking)
 ]
 # per-FILE geometry (intrinsic to each level's layout, keyed by scene file #):
 #   lw = width in tiles, flag/castle = flagpole & castle columns, dark = black bg,
@@ -124,7 +126,7 @@ const LEVEL_ORDER := [
 const LEVEL_GEOMETRY := {
 	1: {"lw": 214, "flag": 198, "castle": 202, "dark": false, "under": false, "noflag": true},   # Vania: no flagpole/castle finish
 	2: {"lw": 128, "flag": 120, "castle": 123, "dark": false, "under": false, "noflag": true},   # 1-2 gauntlet (goal tile, no flag)
-	3: {"lw": 388, "flag": 379, "castle": 382, "dark": false, "under": false},
+	3: {"lw": 74, "flag": 70, "castle": 72, "dark": false, "under": false, "noflag": true},   # Vania 1-3 metroidvania (goal tile, no flag)
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
 	6: {"lw": 200, "flag": 192, "castle": 195, "dark": false, "under": false},
@@ -152,7 +154,7 @@ const LEVEL_GEOMETRY := {
 #   file 15 = 2-4, the DK stage → 3-1 (play-slot 8).
 #   file 5 = 3-2 -> 3-3 (play-slot 16, the eerily-easy overworld).
 #   file 16 = 3-3 -> 3-4 (play-slot 17, the final level).
-const ADVANCE_TO_SLOT := { 9: 3, 2: 6, 12: 13, 14: 13, 13: 15, 15: 8, 3: 5, 5: 16, 16: 17 }   # 3-1->3-2->3-3->3-4
+const ADVANCE_TO_SLOT := { 9: 3, 2: 6, 12: 13, 14: 13, 13: 15, 15: 8, 5: 16, 16: 17 }   # (Vania: removed 3->5 so finishing 1-3 ends the game)
 var _advance_next := 0          # play-slot the current advance is heading to
 var _level_file := 1            # which LevelN.tscn is currently loaded
 var level                       # Level1.tscn instance (TileMapLayer + markers)
@@ -212,7 +214,7 @@ var timing := true             # false once the flagpole is touched (freezes ela
 var game_state := "play"        # play | clear
 var saved_tier := "big"         # Vania: Mario STARTS as big/mushroom Mario (not small, not fire)
 var level_num := 1              # 1 = world 1-1, 2 = world 1-2
-const LEVEL_COUNT := 2          # 1-1 + 1-2
+const LEVEL_COUNT := 3          # 1-1 + 1-2 + 1-3
 static var debug_start_level := 1   # DEBUG: level the intro's stage-select boots into
 
 # --- SAVE FILES: 3 slots, each a name, the highest world reached, and a best time per level ---
@@ -914,6 +916,8 @@ func _physics_process(delta: float) -> void:
 # LEVEL SCENE (Level1.tscn — TileMapLayer terrain + Spawns markers)
 # =========================================================================
 func _scene_for_file(f: int) -> PackedScene:
+	if f == 3:
+		return LEVEL3_SCENE
 	return LEVEL2_SCENE if f == 2 else LEVEL_SCENE
 
 func _instance_level() -> void:
