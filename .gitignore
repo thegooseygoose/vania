@@ -9,3 +9,7 @@
 # OS junk
 Thumbs.db
 .DS_Store
+
+# scratch preview/verify renders written by tools scripts
+tools/_*.png
+tools/_*.png.import

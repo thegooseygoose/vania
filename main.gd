@@ -1010,6 +1010,16 @@ func in_water(p: Vector2) -> bool:
 			return true
 	return false
 
+# World-Y of the water surface (top of the topmost water cell) in the column at point p.
+# Used by the player's split-tint shader to know where to cut blue-below / normal-above.
+# Returns a huge value when p's column has no water (nothing gets tinted).
+func water_surface_y(p: Vector2) -> float:
+	var best := INF
+	for r in water_rects:
+		if p.x >= r.position.x and p.x < r.position.x + r.size.x and r.position.y < best:
+			best = r.position.y
+	return best
+
 # True if the player's body overlaps any lava tile — lava is deadly on contact (unless
 # riding the bike, which the caller checks). lava_rects come from _collect_lava.
 func player_in_lava() -> bool:
@@ -1523,15 +1533,23 @@ const DOORSWITCH_ATLAS := 16
 const DOOR_TILE_ATLAS := 17     # green-circle tile = a door that vanishes when opened
 const START_TILE_ATLAS := 18    # blue arrow tile = where Mario starts (only one per level)
 const GOAL_TILE_ATLAS := 19     # gold star tile = touch it to finish the level (COURSE CLEAR)
+const HOOK_TILE_ATLAS := 47     # yellow-U hook tile = a paintable grapple point (stays visible)
 
 var goal_cells: Array = []
+var grab_tile_pos: Array = []   # world centres of painted hook tiles (paint-placed grapple anchors)
 
 func _spawn_switch_tiles() -> void:
 	door_tile_cells.clear()
 	goal_cells.clear()
+	grab_tile_pos.clear()
 	var start_found := false
 	for cell in terrain.get_used_cells():
 		var ax: int = terrain.get_cell_atlas_coords(cell).x
+		if ax == HOOK_TILE_ATLAS:
+			# a painted hook: leave the tile drawn (it IS the hook) and register a grapple anchor at
+			# the TOP of the tile (the hook sits at the cell's top edge so it reads as connected)
+			grab_tile_pos.append(Vector2(cell.x * 16 + 8, cell.y * 16 + 3))
+			continue
 		if ax == START_TILE_ATLAS:
 			terrain.erase_cell(cell)                     # it's just a marker, remove it
 			if not start_found:                          # only the FIRST one counts
@@ -1569,13 +1587,18 @@ func nearest_bike(from: Vector2, rng: float):
 func nearest_grab_point(from: Vector2, rng: float) -> Vector2:
 	var best := Vector2.INF
 	var bestd := rng
-	for g in grab_points:
+	for g in grab_points:                        # editor-placed GrabPoint nodes
 		if not is_instance_valid(g):
 			continue
 		var d: float = from.distance_to(g.global_position)
 		if d <= bestd:
 			bestd = d
 			best = g.global_position
+	for p in grab_tile_pos:                       # painted hook tiles
+		var d2: float = from.distance_to(p)
+		if d2 <= bestd:
+			bestd = d2
+			best = p
 	return best
 
 
@@ -1601,7 +1624,7 @@ func collect_powerup(shape: String) -> void:
 	var msg := {"square": "DOUBLE JUMP!", "triangle": "GROUND POUND!  (jump, then Down)",
 		"circle": "MORPH BALL!  (press Down)", "diamond": "WALL JUMP!  (jump off walls)",
 		"star": "GRAPPLE BEAM!  (hold Y/C to swing, release to launch)", "boomerang": "BOOMERANG!  (C, or B on controller)",
-		"waterwalk": "WATER WALK!  (walk on water)"}
+		"waterwalk": "GRAVITY SUIT  YOU CAN MOVE FREELY THROUGH WATER"}
 	if hud:
 		hud.show_message(String(msg.get(shape, "POWER UP!")), 2.5)
 

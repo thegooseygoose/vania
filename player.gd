@@ -59,11 +59,21 @@ var wall_lock := 0.0
 var grappling := false
 var grapple_target := Vector2.ZERO
 var rope_len := 0.0              # fixed pendulum length while swinging
-const GRAPPLE_RANGE := 120.0     # how close you must be to latch on
+var extending := false          # BIONIC COMMANDO: the claw is shooting out toward a hook, not latched yet
+var extend_target := Vector2.ZERO
+var extend_time := 0.0
+const EXTEND_TIME := 0.24       # seconds for the claw to fly out and reach the hook (half speed = visible throw)
+const GRAPPLE_RANGE := 85.0      # how close you must be to latch on (= ROPE_MAX, so you swing at the
+								 # real distance you grabbed from — no snap/reel-in on latch)
 const SWING_GRAV := 2000.0       # gravity while swinging (builds speed at the bottom)
 const SWING_ACCEL := 1400.0      # left/right pump strength
 const SWING_MAX := 360.0         # cap swing speed (keeps the fling from overshooting)
 const ROPE_MIN := 40.0
+const ROPE_MAX := 85.0           # longest swing the chain art can cover (art chains are ~88px); the
+								 # rope is the ACTUAL grab distance, capped here so the chain always reaches
+const FIST_X := 5.0              # Mario's raised-hand offset from centre (jump-pose fist at tex(13,2));
+const FIST_Y := -16.0            # x flips with facing. The rope pivots and the chain ends at THIS
+								 # hand pixel, so it visibly grabs his fist instead of floating nearby.
 const FLING_MIN := 250.0         # launch speed floor (a powerful leap, ~3x run)
 const FLING_MAX := 340.0         # ...ceiling — strong, clears far more than a normal jump
 const FLING_GRAV := 0.5          # a FLATTER arc so it carries across a big gap (still arcs down)
@@ -75,6 +85,12 @@ var air_was_submerged := false  # was in water since last on the ground → no d
 var slamming := false           # a down-break slam is in progress
 var morphed := false            # currently a morph ball
 var _ball_tex: ImageTexture     # generated morph-ball sprite
+var _claw_r: Array = []         # facing-right claw textures, index 0..2 = horizontal,45,vertical
+var _claw_l: Array = []         # facing-left  claw textures, same order
+var _claw_tip_r: Array = []     # claw-head anchor point (0..1 within cell), facing right
+var _claw_tip_l: Array = []     # claw-head anchor point, facing left
+var _claw_dir_r: Array = []     # chain direction in box-space (from tip toward chain end), facing right
+var _claw_dir_l: Array = []     # chain direction in box-space, facing left
 const MORPH := Vector2(12, 12)  # tiny ball collision — rolls into gaps
 const SLAM_SPEED := 520.0       # ground-pound crash speed (faster than normal MAX_FALL)
 const SLAM_FREEZE := 0.25       # seconds Mario hovers tucked in the duck before crashing
@@ -90,6 +106,9 @@ const WATER_GRAV := 0.42        # gravity multiplier in water (applies to BOTH r
 const WATER_MAX_FALL := 90.0    # steady sink speed — drifts down to the bottom, no hovering
 const WATER_TINT := Color(0.55, 0.75, 1.0)   # blue tint on Mario while he's underwater
 var submerged := false          # updated each frame in _update_alive
+var _water_split := false        # this frame: split-tint the sprite at the surface line
+var _water_surface_y := 0.0      # world-Y of the water surface at the player's column
+var _water_mat: ShaderMaterial   # canvas shader — tints only fragments BELOW _water_surface_y
 
 # sprite tier for the current power state: "small" / "big" / "fire"
 func tier() -> String:
@@ -159,7 +178,37 @@ func _ready() -> void:
 	sprite.texture_filter = TEXTURE_FILTER_NEAREST
 	sprite.z_index = 5
 	add_child(sprite)
+	# SPLIT WATER TINT: a canvas shader that only tints fragments whose WORLD-Y is at or below
+	# the water surface line. The vertex stage carries each fragment's world-Y (MODEL_MATRIX
+	# folds in the player transform, sprite offset and any morph rotation), so half-submerged
+	# Mario shows blue only up to the water line. Assigned in _apply_frame only while in water.
+	_water_mat = ShaderMaterial.new()
+	var _wsh := Shader.new()
+	_wsh.code = "shader_type canvas_item;\n" \
+		+ "uniform float water_y = 100000.0;\n" \
+		+ "uniform vec4 tint : source_color = vec4(1.0);\n" \
+		+ "varying float v_world_y;\n" \
+		+ "void vertex() { v_world_y = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).y; }\n" \
+		+ "void fragment() { if (v_world_y >= water_y) { COLOR.rgb *= tint.rgb; } }\n"
+	_water_mat.shader = _wsh
+	_water_mat.set_shader_parameter("tint", WATER_TINT)
 	_ball_tex = _make_ball_tex()
+	# GRAPPLE CLAW sheet (sprites/v sprites/theclaw.png): 3 angles x 2 facings, drawn WHOLE (the
+	# claw + the chain the user drew — no procedural chain). Each claw is extracted into its own
+	# clean texture (largest connected component, so a neighbour claw sharing a box can't bleed in).
+	# Index 0..2 = horizontal, ~45, straight-up; "tip" (0..1 in the box) is the claw head / grab
+	# point. Boxes come from a connected-component scan of the sheet — re-run the tools if re-saved.
+	var _sheet: Image = (load("res://sprites/v sprites/theclaw.png") as Texture2D).get_image()
+	if _sheet.is_compressed():
+		_sheet.decompress()
+	_sheet.convert(Image.FORMAT_RGBA8)
+	_claw_r = [_extract_claw(_sheet, Rect2i(64, 61, 90, 7)), _extract_claw(_sheet, Rect2i(109, 60, 77, 42)), _extract_claw(_sheet, Rect2i(227, 60, 7, 97))]
+	_claw_l = [_extract_claw(_sheet, Rect2i(362, 61, 90, 7)), _extract_claw(_sheet, Rect2i(330, 60, 77, 42)), _extract_claw(_sheet, Rect2i(282, 60, 7, 97))]
+	_claw_tip_r = [Vector2(1.0, 0.5), Vector2(1.0, 0.0), Vector2(0.5, 0.0)]
+	_claw_tip_l = [Vector2(0.0, 0.5), Vector2(0.0, 0.0), Vector2(0.5, 0.0)]
+	# chain direction inside each box, from the claw head toward the chain's far end
+	_claw_dir_r = [Vector2(-1, 0), Vector2(-1, 1), Vector2(0, 1)]
+	_claw_dir_l = [Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
 
 
 # a small purple morph-ball sprite (filled circle + a highlight), generated once
@@ -255,9 +304,23 @@ func spawn(feet_pos: Vector2) -> void:
 	death_launched = false
 	riding = false            # a respawn is never still on the bike
 	bike = null
+	grappling = false         # never still latched/firing the grapple after a respawn
+	extending = false
+	# METROIDVANIA: power-ups do NOT persist across death or a level change. spawn() is the
+	# single entry point for both a death-respawn AND a level-load, so clearing the flags here
+	# starts every area powerless — each ability has to be re-collected in the new area.
+	has_double_jump = false
+	has_break = false
+	has_morph = false
+	has_walljump = false
+	has_grapple = false
+	has_boomerang = false
+	has_waterwalk = false
+	morphed = false
 	air_was_submerged = false
 	if sprite:
 		sprite.modulate = Color.WHITE   # clear any leftover underwater tint
+	_water_split = false                # no split-tint until the next in-water frame
 	set_collision_mask_value(1, true)   # kill() clears this to fall through the world;
 										# restore it so a mid-death restart/warp doesn't
 										# spawn Mario falling straight through the floor
@@ -340,7 +403,19 @@ func _update_alive(delta: float) -> void:
 	# W power negates it entirely: you still DROP into the water, yet move/jump as if it
 	# weren't there (no slow, no sink, no single-jump limit).
 	submerged = main.in_water(global_position) and not has_waterwalk
-	sprite.modulate = WATER_TINT if submerged else Color.WHITE   # blue while underwater
+	# The blue TINT is independent of the physics/suit: Mario shows blue whenever ANY part of
+	# his body is in water (feet OR torso), even wearing the GRAVITY SUIT (which only removes
+	# the slowdown, not the look). `submerged` above still drives the water PHYSICS only.
+	var feet := global_position + Vector2(0.0, col_size.y * 0.5 - 2.0)
+	var body_in_water: bool = main.in_water(feet) or main.in_water(global_position)
+	# split the tint at the actual water surface: only the part of Mario BELOW the surface line
+	# shows blue (jumping half-out leaves just his lower body tinted). While any part is in water
+	# the shader does the tinting and modulate stays WHITE; the material is (re)assigned in
+	# _apply_frame because _animate() nulls sprite.material every frame.
+	_water_split = body_in_water
+	if body_in_water:
+		_water_surface_y = main.water_surface_y(global_position)
+	sprite.modulate = Color.WHITE
 	# latch "was in water this airtime" so a jump OUT of the water can't double-jump the
 	# instant the torso clears the surface — you get no double-jump until you land again.
 	# (Cleared on the floor below; the W power makes submerged always false, so no lock.)
@@ -388,19 +463,32 @@ func _update_alive(delta: float) -> void:
 	if grappling:
 		_grapple_physics(delta)
 		return
-	# GRAPPLE — keyboard X/K (shoot) near a grab point, or the controller Y (grapple)
-	if has_grapple and not grappling and (Input.is_action_just_pressed("shoot") or Input.is_action_just_pressed("grapple")):
+	# BIONIC COMMANDO: the claw is flying out toward a hook. Mario keeps normal physics (below) while
+	# it extends; when the arm reaches the hook it LATCHES and the swing begins.
+	if extending:
+		extend_time += delta
+		queue_redraw()
+		if absf(extend_target.x - global_position.x) > 2.0:   # face the way the arm is reaching
+			facing = 1 if extend_target.x > global_position.x else -1
+		if extend_time >= EXTEND_TIME:
+			extending = false
+			grappling = true
+			grapple_target = extend_target
+			rope_len = clampf((global_position + _fist_off()).distance_to(extend_target), ROPE_MIN, ROPE_MAX)
+			main.sfx("fireball")    # the "clink" of grabbing on
+	# GRAPPLE — keyboard X/K (shoot) near a grab point, or the controller Y (grapple): FIRE the claw
+	if has_grapple and not grappling and not extending and (Input.is_action_just_pressed("shoot") or Input.is_action_just_pressed("grapple")):
 		var gp: Vector2 = main.nearest_grab_point(global_position, GRAPPLE_RANGE)
 		if gp != Vector2.INF:
-			grappling = true
-			grapple_target = gp
-			rope_len = maxf(ROPE_MIN, global_position.distance_to(gp))   # swing at this length
-			main.sfx("fireball")
+			extending = true                 # shoot the claw out; it latches when it reaches gp
+			extend_target = gp
+			extend_time = 0.0
+			main.sfx("fireball")             # the "shoot" of firing the arm
 	# BOOMERANG — its own button B on the controller, or C on the keyboard (the
 	# keyboard "shoot" only throws when we didn't just start a grapple this frame)
 	if has_boomerang and (boomerang == null or not is_instance_valid(boomerang)) \
 			and (Input.is_action_just_pressed("boomerang") \
-				or (not grappling and Input.is_action_just_pressed("shoot"))):
+				or (not grappling and not extending and Input.is_action_just_pressed("shoot"))):
 		boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
 		main.sfx("fireball")
 
@@ -426,8 +514,8 @@ func _update_alive(delta: float) -> void:
 		want_duck = false                           # on the bike you can't crouch (Down = hop off)
 		duck_locked = false
 	elif on_floor:
-		want_duck = (big or fire) and Input.is_action_pressed("move_down")
-		duck_locked = want_duck                     # remember it as we may leave the ground
+		want_duck = false                           # NO regular crouch — Down on the ground does nothing
+		duck_locked = false                         # (Down still triggers morph-ball entry + the slam)
 	elif duck_locked and (big or fire):
 		want_duck = true                            # locked ducked until we land
 	else:
@@ -702,10 +790,11 @@ func _exit_morph() -> bool:
 	return true
 
 
+const MORPH_SPEED := 1.5          # morph ball rolls 1.5x normal move speed
 func _morph_physics(delta: float, on_floor: bool) -> void:
 	var running := Input.is_action_pressed("run")
-	var max_s: float = main.RUN_MAX if running else main.WALK_MAX
-	var acc: float = (main.RUN_ACC if running else main.WALK_ACC) if on_floor else main.AIR_ACC
+	var max_s: float = (main.RUN_MAX if running else main.WALK_MAX) * MORPH_SPEED
+	var acc: float = ((main.RUN_ACC if running else main.WALK_ACC) if on_floor else main.AIR_ACC) * MORPH_SPEED
 	var dir := 0.0
 	if Input.is_action_pressed("move_left"):
 		dir = -1.0; facing = -1
@@ -741,6 +830,12 @@ func _do_slam_break() -> void:
 		velocity.y = 140.0                # punch on through the broken block
 
 
+# Mario's raised fist in local space (jump pose). X flips with facing so it tracks the hand when
+# he turns to face the grab point; the rope hangs from here and the chain ends here.
+func _fist_off() -> Vector2:
+	return Vector2(float(facing) * FIST_X, FIST_Y)
+
+
 func _grapple_physics(delta: float) -> void:
 	# SUPER METROID-style swing: a rigid pendulum of length rope_len around the grab
 	# point. HOLD the grapple button (Y / C) to stay latched and swing — pump with
@@ -772,23 +867,109 @@ func _grapple_physics(delta: float) -> void:
 	velocity.x += swing * SWING_ACCEL * delta
 	if velocity.length() > SWING_MAX:
 		velocity = velocity.normalized() * SWING_MAX
-	# integrate, then constrain to the rope (remove the radial part of the velocity)
-	var newpos: Vector2 = global_position + velocity * delta
-	var to: Vector2 = newpos - anchor
+	# keep facing the grab point so his raised hand stays pointed at the chain
+	if absf(anchor.x - global_position.x) > 2.0:
+		facing = 1 if anchor.x > global_position.x else -1
+	# integrate, then constrain to the rope (remove the radial part of the velocity). The pendulum
+	# hangs from Mario's FIST (his raised hand), not his centre, so the chain end sits on his hand.
+	var fist_off := _fist_off()
+	var newfist: Vector2 = global_position + fist_off + velocity * delta
+	var to: Vector2 = newfist - anchor
 	if to.length() > 0.01:
 		var radial: Vector2 = to.normalized()
-		newpos = anchor + radial * rope_len
+		newfist = anchor + radial * rope_len
 		velocity -= radial * velocity.dot(radial)
-	global_position = newpos
+	global_position = newfist - fist_off
 	_animate()
 
 
 func _draw() -> void:
-	# STAR grapple beam: a magenta line from Mario to the grab point he's latched to
-	if grappling:
-		var t := to_local(grapple_target)
-		draw_line(Vector2.ZERO, t, Color(1.0, 0.35, 0.8, 0.95), 2.0)
-		draw_circle(t, 3.0, Color(1.0, 0.85, 1.0))
+	# STAR grapple: draw ONLY the user's claw+chain sprite (no procedural line) at the grab point
+	# he's latched to. Pick the sheet cell by which SIDE the anchor is on (facing) and its
+	# ELEVATION angle (horizontal / ~45 / straight-up), placing the claw head on the anchor.
+	if (grappling or extending) and _claw_r.size() == 3:
+		var fist_local := _fist_off()
+		var fist_world := global_position + fist_local
+		# the claw head is at the grab point when latched, or partway out toward it while extending
+		# (Bionic-Commando arm shooting out — the chain grows until it reaches the hook)
+		var tip_world: Vector2 = grapple_target
+		if extending:
+			tip_world = fist_world.lerp(extend_target, clampf(extend_time / EXTEND_TIME, 0.0, 1.0))
+		var t := to_local(tip_world)
+		var real_dist := (fist_local - t).length()                 # ACTUAL fist->head gap this frame
+		var d := tip_world - fist_world                             # angle from his raised fist
+		var right := d.x >= 0.0
+		var elev := clampf(atan2(-d.y, absf(d.x)), 0.0, PI * 0.5)   # 0=horizontal .. PI/2=up
+		var bucket := int(round(elev / (PI * 0.5) * 2.0))           # 0=horizontal,1=45,2=vertical
+		var tex: Texture2D = (_claw_r[bucket] if right else _claw_l[bucket])
+		var tip: Vector2 = (_claw_tip_r[bucket] if right else _claw_tip_l[bucket])
+		var dir: Vector2 = (_claw_dir_r[bucket] if right else _claw_dir_l[bucket])
+		var sz := tex.get_size()
+		# CLIP: the art chain is drawn long; show only from the claw head down to his ACTUAL fist
+		# this frame (not the intended rope_len), so the chain always reaches wherever he really is.
+		var full_len: float = (sz.length() if (dir.x != 0.0 and dir.y != 0.0) else (sz.x if dir.x != 0.0 else sz.y))
+		var f: float = clampf(real_dist / full_len, 0.0, 1.0)
+		var sw: float = (sz.x * f) if dir.x != 0.0 else sz.x
+		var sh: float = (sz.y * f) if dir.y != 0.0 else sz.y
+		var sx: float = 0.0 if dir.x >= 0.0 else sz.x - sw   # tip at the right edge when chain runs left
+		var sy: float = 0.0 if dir.y >= 0.0 else sz.y - sh
+		var src := Rect2(sx, sy, sw, sh)
+		var full_tip := Vector2(tip.x * sz.x, tip.y * sz.y)
+		var dest := t - full_tip + src.position                 # keep the claw head on the anchor
+		# AIM: the 3 fixed sprites otherwise leave the chain ~20px off his hand mid-swing. Rotate
+		# the chosen claw a little around the anchor so its chain points EXACTLY at his fist, then
+		# the clipped end lands on the fist at every angle. Small residual = negligible pixel skew.
+		var true_dir := fist_local - t                           # anchor -> fist, in local space
+		# the sprite's ACTUAL chain vector (tip -> chain end) respects the box aspect ratio — a
+		# 77x42 diagonal runs at ~61 deg, not 45. Rotate THAT onto true_dir so the chain aims true.
+		var chain_vec := Vector2(dir.x * sz.x, dir.y * sz.y)
+		var residual := 0.0
+		if true_dir.length() > 0.01:
+			residual = wrapf(true_dir.angle() - chain_vec.angle(), -PI, PI)
+		draw_set_transform(t, residual, Vector2.ONE)            # rotate around the anchor (the tip)
+		draw_texture_rect_region(tex, Rect2(dest - t, src.size), src)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)      # reset
+
+
+# Copy one claw's box out of the sheet into its own texture, keeping ONLY the largest
+# 8-connected opaque blob so a neighbouring claw whose bounding box overlaps this one can't
+# bleed stray pixels into the corner. Re-run the CCL box detection if the art is re-saved.
+func _extract_claw(sheet: Image, box: Rect2i) -> ImageTexture:
+	var sub := Image.create(box.size.x, box.size.y, false, Image.FORMAT_RGBA8)
+	for y in box.size.y:
+		for x in box.size.x:
+			sub.set_pixel(x, y, sheet.get_pixel(box.position.x + x, box.position.y + y))
+	var lab := {}
+	var best_id := -1
+	var best_cnt := 0
+	var nid := 0
+	for sy in box.size.y:
+		for sx in box.size.x:
+			var k := Vector2i(sx, sy)
+			if sub.get_pixel(sx, sy).a <= 0.3 or lab.has(k):
+				continue
+			nid += 1
+			var cnt := 0
+			var stack := [k]
+			while stack.size() > 0:
+				var p: Vector2i = stack.pop_back()
+				if lab.has(p) or p.x < 0 or p.y < 0 or p.x >= box.size.x or p.y >= box.size.y:
+					continue
+				if sub.get_pixel(p.x, p.y).a <= 0.3:
+					continue
+				lab[p] = nid
+				cnt += 1
+				for dy in range(-1, 2):
+					for dx in range(-1, 2):
+						stack.append(Vector2i(p.x + dx, p.y + dy))
+			if cnt > best_cnt:
+				best_cnt = cnt
+				best_id = nid
+	for y in box.size.y:
+		for x in box.size.x:
+			if lab.get(Vector2i(x, y), -1) != best_id:
+				sub.set_pixel(x, y, Color(0, 0, 0, 0))
+	return ImageTexture.create_from_image(sub)
 
 
 func _set_stance(sz: Vector2) -> void:
@@ -947,7 +1128,13 @@ func _apply_frame(t: Texture2D, flip := false) -> void:
 	# mirrored to face the way Mario was already facing.
 	sprite.texture = t
 	sprite.flip_h = flip
-	sprite.material = null
+	# split-water tint rides on a shader material, (re)assigned here because this runs every
+	# frame (after the water check in _update_alive) and would otherwise be lost; else no material.
+	if _water_split and _water_mat:
+		_water_mat.set_shader_parameter("water_y", _water_surface_y)
+		sprite.material = _water_mat
+	else:
+		sprite.material = null
 	# bottom-align the sprite to the collision box
 	sprite.position.y = col_size.y / 2.0 - t.get_height() / 2.0
 
@@ -961,6 +1148,9 @@ func _animate() -> void:
 func _pose_key_flip() -> Array:
 	# only big/fire Mario has a duck sprite — small Mario can't duck (guards against
 	# "small_duck" when a duck-shrink leaves `ducking` set as we drop to the small tier)
+	if grappling:
+		# always the raised-arm jump pose while swinging, so his fist is where the chain attaches
+		return ["_jump_r" if facing >= 0 else "_jump_l", false]
 	if ducking and (big or fire):
 		# duck art faces left; mirror when facing right so it keeps facing
 		return ["_duck", facing > 0]
