@@ -70,6 +70,9 @@ func _paint(ci: CanvasItem) -> void:
 	# fog-of-war minimap (top-right) during normal play
 	if main.game_state == "play" and not main.show_level_card and not main.attract_mode:
 		_paint_minimap(ci)
+	# 5-heart health readout (top-left, under the score)
+	if main.player != null and not main.show_level_card:
+		_paint_hearts(ci)
 
 	# attract/demo mode banner
 	if main.attract_mode:
@@ -158,6 +161,22 @@ func _paint(ci: CanvasItem) -> void:
 func reset_map() -> void:
 	map_seen.clear()
 	_map_level = -999
+
+
+# 5-heart health, drawn top-left under the score. Filled = current, dark = lost.
+const _HEART := ["0110110", "1111111", "1111111", "0111110", "0011100", "0001000"]
+func _paint_hearts(ci: CanvasItem) -> void:
+	var cur: int = int(main.player.hearts)
+	var maxh: int = int(main.player.MAX_HEARTS)
+	var hy := 30.0
+	for i in maxh:
+		var hx := 16.0 + float(i) * 9.0
+		var col := Color(0.95, 0.2, 0.32) if i < cur else Color(0.24, 0.24, 0.30)
+		for ry in _HEART.size():
+			var row: String = _HEART[ry]
+			for rx in row.length():
+				if row[rx] == "1":
+					ci.draw_rect(Rect2(hx + float(rx), hy + float(ry), 1.0, 1.0), col)
 
 
 # A small fog-of-war minimap in the top-right: the whole level scaled to fit a fixed box,

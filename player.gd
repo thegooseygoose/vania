@@ -144,6 +144,8 @@ const GROW_FRAME := ["grow1", "grow4", "grow2"]     # 0 small, 1 big, 2 intermed
 const SHRINK_FRAME := ["shrink4", "shrink1"]        # 0 small (D), 1 big (A)
 
 var invuln := 0.0
+const MAX_HEARTS := 5
+var hearts := MAX_HEARTS         # health: each hit costs one; death at 0. Reset to full on spawn.
 var jump_held := false
 var was_rising := false
 var grounded := false            # is_on_floor() OR a foot resting over a 1-tile gap (SMB1)
@@ -319,6 +321,7 @@ func spawn(feet_pos: Vector2) -> void:
 	if sprite:
 		sprite.modulate = Color.WHITE   # clear any leftover underwater tint
 	_water_split = false                # no split-tint until the next in-water frame
+	hearts = MAX_HEARTS                 # full health at the start of every life
 	set_collision_mask_value(1, true)   # kill() clears this to fall through the world;
 										# restore it so a mid-death restart/warp doesn't
 										# spawn Mario falling straight through the floor
@@ -396,7 +399,10 @@ func _update_alive(delta: float) -> void:
 	# grounded (so you glide across). Slow/stopped → not grounded → you fall in.
 	# On the bike, lava counts as footing at ANY speed (you drive across its surface), so
 	# ground support isn't gated on running fast the way the SMB gap-carry is.
-	var on_floor := is_on_floor() or ((absf(velocity.x) > GAP_MIN_SPEED or riding) and _foot_support_top() > -INF)
+	# Gap-carry footing only counts while NOT rising — otherwise jumping INTO a wall lets the foot-span
+	# probe read the wall as "ground", resetting the air-jump (the against-wall triple-jump bug).
+	var on_floor := is_on_floor() or (riding and _foot_support_top() > -INF) \
+		or (absf(velocity.x) > GAP_MIN_SPEED and velocity.y >= 0.0 and _foot_support_top() > -INF)
 	# WATER: submerged if the torso (body centre) is inside a painted water cell — but the
 	# W power negates it entirely: you still DROP into the water, yet move/jump as if it
 	# weren't there (no slow, no sink, no single-jump limit).
@@ -739,9 +745,13 @@ func _update_alive(delta: float) -> void:
 	if main.has_flag and not winning and global_position.x + half_w() >= main.FLAG_X * main.TILE - 6:
 		_start_win()
 
-	# LAVA kills on contact — unless you're crossing it on the bike (then it's solid ground).
-	if not riding and not dead and main.player_in_lava():
-		kill(false)
+	# LAVA now costs a HEART (not instant death) and knocks Mario back UP out of it — unless he's
+	# crossing it on the bike (then it's solid ground). invuln inside hurt() prevents rapid drain.
+	if not riding and not dead and invuln <= 0.0 and main.player_in_lava():
+		hurt()
+		if not dead:
+			velocity.y = -220.0            # bounce up out of the lava
+			velocity.x = -float(facing) * 120.0   # and shove back the way he came
 
 	# Vania: pits DON'T kill — you fall through into the underground below. Only dying
 	# if you drop clear out of the whole painted level (a real bottomless void).
@@ -1248,14 +1258,14 @@ func _update_transform(delta: float) -> void:
 func hurt() -> void:
 	if invuln > 0.0 or dead or transforming:
 		return
-	# Vania: there is NO small Mario. Fire → mushroom (drop the flower, same size); a plain
-	# mushroom Mario dies outright instead of shrinking to little Mario.
-	if fire:
-		fire = false
-		invuln = 1.5
-		main.sfx("powerdown")
-	else:
+	# 5-heart health: every hit costs one heart; at 0 you die. (Fire power is kept until death.)
+	hearts -= 1
+	if hearts <= 0:
+		hearts = 0
 		kill()
+		return
+	invuln = 1.5
+	main.sfx("powerdown")
 
 func bounce() -> void:
 	velocity.y = main.STOMP_BOUNCE

@@ -126,7 +126,7 @@ const LEVEL_ORDER := [
 const LEVEL_GEOMETRY := {
 	1: {"lw": 214, "flag": 198, "castle": 202, "dark": false, "under": false, "noflag": true},   # Vania: no flagpole/castle finish
 	2: {"lw": 128, "flag": 120, "castle": 123, "dark": false, "under": false, "noflag": true},   # 1-2 gauntlet (goal tile, no flag)
-	3: {"lw": 74, "flag": 70, "castle": 72, "dark": false, "under": false, "noflag": true},   # Vania 1-3 metroidvania (goal tile, no flag)
+	3: {"lw": 128, "flag": 70, "castle": 72, "dark": false, "under": false, "noflag": true},   # Vania 1-3 metroidvania (goal tile, no flag)
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
 	6: {"lw": 200, "flag": 192, "castle": 195, "dark": false, "under": false},
@@ -318,7 +318,7 @@ static func resume_slot() -> int:
 	return int(CANON_LEVELS[hi][1])
 var world_label := "1-1"        # shown in the HUD
 var underground := false         # true = black bg, no starfield (1-4 is underground)
-const SKY_COLOR := Color(0.16, 0.16, 0.19)   # night-sky clear colour for surface levels
+const SKY_COLOR := Color(0.56, 0.58, 0.62)   # grey overcast sky for surface levels
 var advancing := false          # 1-1 beaten → running the between-level sequence
 var advance_timer := 0.0
 var advance_phase := 0          # 0 wait fanfare, 1 hold 10 frames, 2 black card

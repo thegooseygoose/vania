@@ -194,34 +194,46 @@ func _draw_particles() -> void:
 				Rect2(p.pos.x - s / 2.0, p.pos.y - s / 2.0, s, s), false)
 
 
-# ---- night-sky starfield --------------------------------------------------
-const STAR_CELL := 240          # a star pattern this wide, tiled across the sky
-var _stars := []                # {x, y, big} within one cell
+# ---- grey-sky planets -----------------------------------------------------
+const STAR_CELL := 320          # a planet pattern this wide, tiled across the sky
+var _stars := []                # {x, y, r, col, ring} within one cell (name kept: the bg layer)
 
 func _gen_stars() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20260729
-	for i in range(46):
+	var pal := [Color(0.72, 0.42, 0.36), Color(0.5, 0.58, 0.74), Color(0.66, 0.64, 0.54),
+		Color(0.58, 0.5, 0.66), Color(0.8, 0.74, 0.6), Color(0.44, 0.6, 0.58)]
+	for i in range(5):
 		_stars.append({
 			"x": rng.randf() * STAR_CELL,
-			"y": rng.randf() * 188.0,          # sky band, above the ground
-			"big": rng.randf() < 0.22,
+			"y": 14.0 + rng.randf() * 108.0,       # upper sky band, above the ground
+			"r": 6.0 + rng.randf() * 12.0,
+			"col": pal[rng.randi() % pal.size()],
+			"ring": rng.randf() < 0.4,
 		})
 
 func _draw_stars(cam_x: float) -> void:
-	# a repeating star pattern with gentle parallax, so it feels far away
-	var off := fmod(cam_x * 0.3, STAR_CELL)
+	# a few far-away planets with gentle parallax across the grey sky
+	var off := fmod(cam_x * 0.22, STAR_CELL)
 	var k := -STAR_CELL
 	while k < main.VIEW_W + STAR_CELL:
-		for s in _stars:
-			var sx: float = k + s.x - off
-			if sx < -2 or sx > main.VIEW_W + 2:
+		for p in _stars:
+			var sx: float = k + p.x - off
+			if sx < -40 or sx > main.VIEW_W + 40:
 				continue
-			var wx := cam_x + sx
-			if s.big:
-				_rect(wx, s.y, 2, 2, Color(1, 1, 1, 0.9))
-			else:
-				_rect(wx, s.y, 1, 1, Color(1, 1, 1, 0.6))
+			var cx: float = cam_x + sx
+			var cy: float = p.y
+			var r: float = p.r
+			var col: Color = p.col
+			draw_circle(Vector2(cx, cy), r, col)                                       # planet body
+			draw_circle(Vector2(cx + r * 0.32, cy + r * 0.32), r * 0.72, col.darkened(0.22))  # shaded side
+			draw_circle(Vector2(cx - r * 0.34, cy - r * 0.34), r * 0.24, col.lightened(0.3))  # highlight
+			if p.ring:                                                                 # flat Saturn ring
+				var pts := PackedVector2Array()
+				for a in range(0, 33):
+					var ang := float(a) * TAU / 32.0
+					pts.append(Vector2(cx + cos(ang) * r * 1.85, cy + sin(ang) * r * 0.5))
+				draw_polyline(pts, col.lightened(0.25), 1.5)
 		k += STAR_CELL
 
 
