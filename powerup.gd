@@ -47,6 +47,13 @@ func _ready() -> void:
 var main                      # set by Main._wire_powerups at runtime
 var collected := false
 
+# the "power icon" art (green B badge) drawn for the morph pickup, loaded once
+static var _icon: Texture2D
+func _icon_tex() -> Texture2D:
+	if _icon == null:
+		_icon = load("res://sprites/v sprites/ball.png") as Texture2D
+	return _icon
+
 
 func _physics_process(_delta: float) -> void:
 	if Engine.is_editor_hint() or collected or main == null or main.player == null:
@@ -81,8 +88,8 @@ func _draw() -> void:
 			draw_colored_polygon(pts, c)
 			draw_polyline(pts + PackedVector2Array([pts[0]]), outline, 1.5)
 		"circle":
-			draw_circle(Vector2.ZERO, 8.0, c)
-			draw_arc(Vector2.ZERO, 8.0, 0.0, TAU, 24, outline, 1.5)
+			# the morph pickup = the user's "power icon" art (ball.png, green B badge)
+			draw_texture_rect_region(_icon_tex(), Rect2(-8, -8, 16, 16), Rect2(50, 38, 16, 16))
 		"diamond":
 			var d := PackedVector2Array([Vector2(0, -10), Vector2(9, 0), Vector2(0, 10), Vector2(-9, 0)])
 			draw_colored_polygon(d, c)

@@ -194,46 +194,85 @@ func _draw_particles() -> void:
 				Rect2(p.pos.x - s / 2.0, p.pos.y - s / 2.0, s, s), false)
 
 
-# ---- grey-sky planets -----------------------------------------------------
-const STAR_CELL := 320          # a planet pattern this wide, tiled across the sky
-var _stars := []                # {x, y, r, col, ring} within one cell (name kept: the bg layer)
+# ---- cyberpunk "inside a computer" circuit-board background ----------------
+const STAR_CELL := 384          # circuit pattern this wide, tiled across the screen (name kept)
+const GRID := 16                # PCB grid spacing
+const C_GRID := Color(0.12, 0.5, 0.22, 0.16)   # faint green grid
+const C_TRACE := Color(0.16, 0.78, 0.34)       # circuit trace
+const C_GLOW := Color(0.2, 1.0, 0.45, 0.10)    # soft glow under traces
+const C_NODE := Color(0.45, 1.0, 0.55)         # solder pad / node
+const C_PULSE := Color(0.75, 1.0, 0.8)         # bright data pulse
+var _stars := []                # trace polylines (cell-space) — name kept: the bg layer
+var _nodes := []                # {pos, r} solder pads
+var _pulses := []               # {idx, speed, phase} animated dots along traces
 
 func _gen_stars() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20260729
-	var pal := [Color(0.72, 0.42, 0.36), Color(0.5, 0.58, 0.74), Color(0.66, 0.64, 0.54),
-		Color(0.58, 0.5, 0.66), Color(0.8, 0.74, 0.6), Color(0.44, 0.6, 0.58)]
-	for i in range(5):
-		_stars.append({
-			"x": rng.randf() * STAR_CELL,
-			"y": 14.0 + rng.randf() * 108.0,       # upper sky band, above the ground
-			"r": 6.0 + rng.randf() * 12.0,
-			"col": pal[rng.randi() % pal.size()],
-			"ring": rng.randf() < 0.4,
-		})
+	var vh: float = float(main.VIEW_H)
+	# lay down Manhattan-routed circuit traces on the grid
+	for i in range(14):
+		var pts := PackedVector2Array()
+		var x := float((rng.randi() % (STAR_CELL / GRID)) * GRID)
+		var y := float((rng.randi() % int(vh / GRID)) * GRID)
+		pts.append(Vector2(x, y))
+		var segs := 3 + rng.randi() % 4
+		for s in range(segs):
+			if s % 2 == 0:
+				x += float((1 + rng.randi() % 4) * GRID * (1 if rng.randf() < 0.5 else -1))
+				x = clampf(x, 0.0, float(STAR_CELL))
+			else:
+				y += float((1 + rng.randi() % 3) * GRID * (1 if rng.randf() < 0.5 else -1))
+				y = clampf(y, 0.0, vh)
+			pts.append(Vector2(x, y))
+		_stars.append(pts)
+		# solder pads at both ends
+		_nodes.append({"pos": pts[0], "r": 1.5 + rng.randf() * 1.5})
+		_nodes.append({"pos": pts[pts.size() - 1], "r": 1.5 + rng.randf() * 1.5})
+		# ~half the traces carry a moving data pulse
+		if rng.randf() < 0.55:
+			_pulses.append({"idx": i, "speed": 0.15 + rng.randf() * 0.35, "phase": rng.randf()})
+
+# point at arc-length distance `d` along a polyline
+func _point_along(pts: PackedVector2Array, d: float) -> Vector2:
+	for i in range(pts.size() - 1):
+		var seg: float = pts[i].distance_to(pts[i + 1])
+		if d <= seg:
+			return pts[i].lerp(pts[i + 1], d / seg if seg > 0.0 else 0.0)
+		d -= seg
+	return pts[pts.size() - 1]
 
 func _draw_stars(cam_x: float) -> void:
-	# a few far-away planets with gentle parallax across the grey sky
-	var off := fmod(cam_x * 0.22, STAR_CELL)
+	var vw: float = float(main.VIEW_W)
+	var vh: float = float(main.VIEW_H)
+	# 1) static PCB grid, locked to the screen (drawn in world space at cam_x + screen)
+	var gx0 := int(floor(fmod(cam_x, GRID)))
+	for sx in range(-gx0, int(vw) + GRID, GRID):
+		draw_line(Vector2(cam_x + sx, 0), Vector2(cam_x + sx, vh), C_GRID, 1.0)
+	for sy in range(0, int(vh) + GRID, GRID):
+		draw_line(Vector2(cam_x, sy), Vector2(cam_x + vw, sy), C_GRID, 1.0)
+	# 2) circuit traces + nodes, tiled with parallax
+	var tt: float = Time.get_ticks_msec() / 1000.0
+	var off := fmod(cam_x * 0.35, STAR_CELL)
 	var k := -STAR_CELL
-	while k < main.VIEW_W + STAR_CELL:
-		for p in _stars:
-			var sx: float = k + p.x - off
-			if sx < -40 or sx > main.VIEW_W + 40:
-				continue
-			var cx: float = cam_x + sx
-			var cy: float = p.y
-			var r: float = p.r
-			var col: Color = p.col
-			draw_circle(Vector2(cx, cy), r, col)                                       # planet body
-			draw_circle(Vector2(cx + r * 0.32, cy + r * 0.32), r * 0.72, col.darkened(0.22))  # shaded side
-			draw_circle(Vector2(cx - r * 0.34, cy - r * 0.34), r * 0.24, col.lightened(0.3))  # highlight
-			if p.ring:                                                                 # flat Saturn ring
-				var pts := PackedVector2Array()
-				for a in range(0, 33):
-					var ang := float(a) * TAU / 32.0
-					pts.append(Vector2(cx + cos(ang) * r * 1.85, cy + sin(ang) * r * 0.5))
-				draw_polyline(pts, col.lightened(0.25), 1.5)
+	while k < int(vw) + STAR_CELL:
+		var base := cam_x + float(k) - off
+		draw_set_transform(Vector2(base, 0.0), 0.0, Vector2.ONE)
+		for tr in _stars:
+			draw_polyline(tr, C_GLOW, 3.0)      # soft glow
+			draw_polyline(tr, C_TRACE, 1.0)     # bright core
+		for n in _nodes:
+			draw_circle(n.pos, n.r + 1.0, C_GLOW)
+			draw_circle(n.pos, n.r, C_NODE)
+		for p in _pulses:
+			var tr2: PackedVector2Array = _stars[p.idx]
+			var total := 0.0
+			for i in range(tr2.size() - 1):
+				total += tr2[i].distance_to(tr2[i + 1])
+			var d: float = fmod(tt * p.speed * total + p.phase * total, total)
+			var pos := _point_along(tr2, d)
+			draw_circle(pos, 2.0, C_PULSE)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # reset
 		k += STAR_CELL
 
 

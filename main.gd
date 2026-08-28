@@ -159,6 +159,8 @@ var _advance_next := 0          # play-slot the current advance is heading to
 var _level_file := 1            # which LevelN.tscn is currently loaded
 var level                       # Level1.tscn instance (TileMapLayer + markers)
 var terrain                     # the TileMapLayer holding the terrain + collision
+var markers_layer               # TileMapLayer for door-switch/door/start/goal special tiles
+var powerups_layer              # TileMapLayer for the power-up icon tiles
 var _player_start := Vector2(3 * TILE + TILE / 2.0, FLOOR * TILE)
 var _enemy_defs: Array = []     # [{pos:Vector2, type:String}]
 var _coin_defs: Array = []      # [Vector2]
@@ -318,7 +320,7 @@ static func resume_slot() -> int:
 	return int(CANON_LEVELS[hi][1])
 var world_label := "1-1"        # shown in the HUD
 var underground := false         # true = black bg, no starfield (1-4 is underground)
-const SKY_COLOR := Color(0.56, 0.58, 0.62)   # grey overcast sky for surface levels
+const SKY_COLOR := Color(0.02, 0.06, 0.04)   # near-black green "inside a computer" backdrop
 var advancing := false          # 1-1 beaten → running the between-level sequence
 var advance_timer := 0.0
 var advance_phase := 0          # 0 wait fanfare, 1 hold 10 frames, 2 black card
@@ -888,6 +890,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_update_gameplay_collisions()
 	_check_goal()
+	_check_powerup_tiles()
 	_check_pipe_exit()
 	_check_sonic_cut()
 	_check_l14_cut()
@@ -936,6 +939,8 @@ func _instance_level() -> void:
 	underground = bool(g["dark"])
 	RenderingServer.set_default_clear_color(Color.BLACK if underground else SKY_COLOR)
 	terrain = level.get_node("Terrain")
+	markers_layer = level.get_node_or_null("Markers")     # door-switch/door/start/goal tiles
+	powerups_layer = level.get_node_or_null("Powerups")   # power-up icon tiles
 	_strip_flag_house()
 	# level top/bottom (px) from the painted terrain — supports tiles ABOVE y=0
 	# (negative rows), so the free camera can scroll up into anything you build.
@@ -1520,13 +1525,29 @@ func _check_goal() -> void:
 			return
 
 
+# painted power-up icons (power.png): touch one to collect its power, then erase the tile
+func _check_powerup_tiles() -> void:
+	if game_state != "play" or powerup_tile_cells.is_empty():
+		return
+	for i in range(powerup_tile_cells.size() - 1, -1, -1):
+		var cell: Vector2i = powerup_tile_cells[i][0]
+		var shape: String = powerup_tile_cells[i][1]
+		var c := Vector2(cell.x * 16 + 8, cell.y * 16 + 8)
+		if player.global_position.distance_to(c) < 16.0:
+			collect_powerup(shape)
+			if powerups_layer:
+				powerups_layer.erase_cell(cell)
+			powerup_tile_cells.remove_at(i)
+
+
 func open_doors() -> void:
 	for d in doors:
 		if is_instance_valid(d):
 			d.open()
 	# painted green-circle door tiles: erase them (removes the wall + its collision)
-	for cell in door_tile_cells:
-		terrain.erase_cell(cell)
+	if markers_layer:
+		for cell in door_tile_cells:
+			markers_layer.erase_cell(cell)
 	door_tile_cells.clear()
 
 
@@ -1538,40 +1559,52 @@ const DOOR_TILE_ATLAS := 17     # green-circle tile = a door that vanishes when 
 const START_TILE_ATLAS := 18    # blue arrow tile = where Mario starts (only one per level)
 const GOAL_TILE_ATLAS := 19     # gold star tile = touch it to finish the level (COURSE CLEAR)
 const HOOK_TILE_ATLAS := 47     # yellow-U hook tile = a paintable grapple point (stays visible)
+# paintable power-up icon tiles (power.png) -> the power they grant on touch.
+# 48 morph, 49 double jump, 50 brick break, 51 grapple, 52 boomerang, 53 wall jump, 54 water gravity.
+const POWERUP_TILE_SHAPE := {48: "circle", 49: "square", 50: "triangle", 51: "star",
+	52: "boomerang", 53: "diamond", 54: "waterwalk"}
 
 var goal_cells: Array = []
+var powerup_tile_cells: Array = []    # painted power-up tiles as [cell, shape] (grant on touch)
 var grab_tile_pos: Array = []   # world centres of painted hook tiles (paint-placed grapple anchors)
 
 func _spawn_switch_tiles() -> void:
 	door_tile_cells.clear()
 	goal_cells.clear()
 	grab_tile_pos.clear()
+	powerup_tile_cells.clear()
 	var start_found := false
+	# HOOK tiles stay on the Terrain layer (they aren't a "special marker")
 	for cell in terrain.get_used_cells():
-		var ax: int = terrain.get_cell_atlas_coords(cell).x
-		if ax == HOOK_TILE_ATLAS:
-			# a painted hook: leave the tile drawn (it IS the hook) and register a grapple anchor at
-			# the TOP of the tile (the hook sits at the cell's top edge so it reads as connected)
+		if terrain.get_cell_atlas_coords(cell).x == HOOK_TILE_ATLAS:
+			# register a grapple anchor at the TOP of the tile (reads as connected)
 			grab_tile_pos.append(Vector2(cell.x * 16 + 8, cell.y * 16 + 3))
-			continue
-		if ax == START_TILE_ATLAS:
-			terrain.erase_cell(cell)                     # it's just a marker, remove it
-			if not start_found:                          # only the FIRST one counts
-				_player_start = Vector2(cell.x * 16 + 8, float((cell.y + 1) * 16))
-				start_found = true
-			continue
-		if ax == GOAL_TILE_ATLAS:
-			goal_cells.append(cell)                      # gold-star tile stays visible; touch = clear
-			continue
-		if ax == DOORSWITCH_ATLAS:
-			terrain.erase_cell(cell)
-			var s := DoorSwitch.new()
-			s.main = self
-			level.add_child(s)
-			s.position = Vector2(cell.x * 16 + 8, cell.y * 16 + 8)
-			door_switches.append(s)
-		elif ax == DOOR_TILE_ATLAS:
-			door_tile_cells.append(cell)   # stays SOLID (blocks) until a switch is hit
+	# POWER-UP icon tiles live on their own Powerups layer
+	if powerups_layer:
+		for cell in powerups_layer.get_used_cells():
+			var pax: int = powerups_layer.get_cell_atlas_coords(cell).x
+			if POWERUP_TILE_SHAPE.has(pax):
+				powerup_tile_cells.append([cell, POWERUP_TILE_SHAPE[pax]])  # stays until collected
+	# MARKER tiles (switch/door/start/goal) live on their own Markers layer
+	if markers_layer:
+		for cell in markers_layer.get_used_cells():
+			var ax: int = markers_layer.get_cell_atlas_coords(cell).x
+			if ax == START_TILE_ATLAS:
+				markers_layer.erase_cell(cell)               # it's just a marker, remove it
+				if not start_found:                          # only the FIRST one counts
+					_player_start = Vector2(cell.x * 16 + 8, float((cell.y + 1) * 16))
+					start_found = true
+			elif ax == GOAL_TILE_ATLAS:
+				goal_cells.append(cell)                      # gold-star tile stays visible; touch = clear
+			elif ax == DOORSWITCH_ATLAS:
+				markers_layer.erase_cell(cell)
+				var s := DoorSwitch.new()
+				s.main = self
+				level.add_child(s)
+				s.position = Vector2(cell.x * 16 + 8, cell.y * 16 + 8)
+				door_switches.append(s)
+			elif ax == DOOR_TILE_ATLAS:
+				door_tile_cells.append(cell)   # stays SOLID (blocks) until a switch is hit
 
 
 # nearest un-ridden Bike within `rng` of `from`; null if none in range

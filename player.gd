@@ -211,21 +211,14 @@ func _ready() -> void:
 	_claw_dir_l = [Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
 
 
-# a small purple morph-ball sprite (filled circle + a highlight), generated once
+# the morph-ball sprite = the user's "actual ball" art (ball.png, 16x16 at 18,38)
 func _make_ball_tex() -> ImageTexture:
-	var d := 14
-	var img := Image.create(d, d, false, Image.FORMAT_RGBA8)
-	var ctr := Vector2(d / 2.0 - 0.5, d / 2.0 - 0.5)
-	for y in d:
-		for x in d:
-			var dist := Vector2(x, y).distance_to(ctr)
-			if dist <= d / 2.0 - 0.5:
-				var shade: float = clampf(1.0 - dist / (d / 2.0), 0.35, 1.0)
-				var col := Color(0.55 * shade + 0.15, 0.2 * shade + 0.05, 0.75 * shade + 0.2)
-				# a little highlight up-left
-				if Vector2(x, y).distance_to(ctr + Vector2(-3, -3)) < 2.0:
-					col = Color(0.95, 0.85, 1.0)
-				img.set_pixel(x, y, col)
+	var sheet: Image = (load("res://sprites/v sprites/ball.png") as Texture2D).get_image()
+	if sheet.is_compressed():
+		sheet.decompress()
+	sheet.convert(Image.FORMAT_RGBA8)
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	img.blit_rect(sheet, Rect2i(18, 38, 16, 16), Vector2i(0, 0))
 	return ImageTexture.create_from_image(img)
 
 
@@ -320,6 +313,7 @@ func spawn(feet_pos: Vector2) -> void:
 	air_was_submerged = false
 	if sprite:
 		sprite.modulate = Color.WHITE   # clear any leftover underwater tint
+		sprite.rotation = 0.0           # clear any leftover morph-ball roll (reset while rolling)
 	_water_split = false                # no split-tint until the next in-water frame
 	hearts = MAX_HEARTS                 # full health at the start of every life
 	set_collision_mask_value(1, true)   # kill() clears this to fall through the world;
@@ -1004,8 +998,9 @@ func _blocked_above(stand_h: float) -> bool:
 			if main.terrain.get_cell_source_id(Vector2i(c, r)) >= 0:
 				var ax: int = main.terrain.get_cell_atlas_coords(Vector2i(c, r)).x
 				if ax == main.ATLAS_WATER or ax == main.ATLAS_WATER_TOP \
-						or ax == main.ATLAS_LAVA or ax == main.ATLAS_LAVA_TOP:
-					continue                   # water/lava aren't a ceiling
+						or ax == main.ATLAS_LAVA or ax == main.ATLAS_LAVA_TOP \
+						or ax >= main.HOOK_TILE_ATLAS or ax == main.GOAL_TILE_ATLAS:
+					continue                   # water/lava/hook/power-up/goal aren't a ceiling
 				return true
 	return false
 
@@ -1024,7 +1019,8 @@ func _sunk_top(px: float, feet_y: float) -> float:
 		var ax: int = main.terrain.get_cell_atlas_coords(c).x
 		var is_water: bool = ax == main.ATLAS_WATER_TOP or ax == main.ATLAS_WATER
 		var is_lava: bool = ax == main.ATLAS_LAVA_TOP or ax == main.ATLAS_LAVA
-		if not is_water and not (is_lava and not riding):
+		var is_deco: bool = ax >= main.HOOK_TILE_ATLAS or ax == main.GOAL_TILE_ATLAS   # hook + power-up + goal: no footing
+		if not is_water and not is_deco and not (is_lava and not riding):
 			var top: float = float(r) * main.TILE
 			if feet_y > top and feet_y - top <= SUNK_MAX:
 				return top
@@ -1044,7 +1040,8 @@ func _wall_ahead(d: float) -> bool:
 		if main.terrain.get_cell_source_id(c) >= 0:
 			var ax: int = main.terrain.get_cell_atlas_coords(c).x
 			if ax != main.ATLAS_LAVA_TOP and ax != main.ATLAS_LAVA \
-					and ax != main.ATLAS_WATER_TOP and ax != main.ATLAS_WATER:
+					and ax != main.ATLAS_WATER_TOP and ax != main.ATLAS_WATER \
+					and ax < main.HOOK_TILE_ATLAS and ax != main.GOAL_TILE_ATLAS:
 				return true
 	return false
 
@@ -1073,6 +1070,8 @@ func _ground_top_at(px: float, feet_y: float) -> float:
 				continue                       # water gives NO footing — you drop through
 			if (ax == main.ATLAS_LAVA or ax == main.ATLAS_LAVA_TOP) and not riding:
 				continue                       # lava = no footing... unless you're on the bike
+			if ax >= main.HOOK_TILE_ATLAS or ax == main.GOAL_TILE_ATLAS:
+				continue                       # hook + power-up + goal give NO footing
 			var top: float = float(r) * main.TILE
 			if top >= feet_y - CARRY_FALL and top <= feet_y + 6.0:
 				return top
@@ -1104,8 +1103,9 @@ func _handle_head_bump() -> void:
 			continue                                  # only solid tiles are bumpable
 		var hax: int = main.terrain.get_cell_atlas_coords(Vector2i(col, row)).x
 		if hax == main.ATLAS_WATER or hax == main.ATLAS_WATER_TOP \
-				or hax == main.ATLAS_LAVA or hax == main.ATLAS_LAVA_TOP:
-			continue                                  # walk-through hazard tiles never bonk the head
+				or hax == main.ATLAS_LAVA or hax == main.ATLAS_LAVA_TOP \
+				or hax >= main.HOOK_TILE_ATLAS or hax == main.GOAL_TILE_ATLAS:
+			continue                                  # water/lava/hook/power-up icons never bonk the head
 		var tile_l: float = col * main.TILE
 		var overlap: float = minf(right, tile_l + main.TILE) - maxf(left, tile_l)
 		if overlap > best_overlap:
