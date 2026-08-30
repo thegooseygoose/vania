@@ -245,35 +245,44 @@ func _point_along(pts: PackedVector2Array, d: float) -> Vector2:
 func _draw_stars(cam_x: float) -> void:
 	var vw: float = float(main.VIEW_W)
 	var vh: float = float(main.VIEW_H)
-	# 1) static PCB grid, locked to the screen (drawn in world space at cam_x + screen)
-	var gx0 := int(floor(fmod(cam_x, GRID)))
-	for sx in range(-gx0, int(vw) + GRID, GRID):
-		draw_line(Vector2(cam_x + sx, 0), Vector2(cam_x + sx, vh), C_GRID, 1.0)
-	for sy in range(0, int(vh) + GRID, GRID):
-		draw_line(Vector2(cam_x, sy), Vector2(cam_x + vw, sy), C_GRID, 1.0)
-	# 2) circuit traces + nodes, tiled with parallax
+	var cam_y: float = main.cam_y              # viewport top-left in world = (cam_x, cam_y)
+	# 1) PCB grid — fills the WHOLE viewport wherever the camera is (both axes), so scrolling
+	#    up (climbing) still shows the grid instead of empty sky above world-y 0.
+	var x := cam_x - fmod(cam_x, GRID)
+	while x <= cam_x + vw:
+		draw_line(Vector2(x, cam_y), Vector2(x, cam_y + vh), C_GRID, 1.0)
+		x += GRID
+	var y := cam_y - fmod(cam_y, GRID)
+	while y <= cam_y + vh:
+		draw_line(Vector2(cam_x, y), Vector2(cam_x + vw, y), C_GRID, 1.0)
+		y += GRID
+	# 2) circuit traces + nodes, tiled in BOTH axes with parallax so the pattern is present
+	#    across the full painted level height, not just the first screen.
 	var tt: float = Time.get_ticks_msec() / 1000.0
-	var off := fmod(cam_x * 0.35, STAR_CELL)
-	var k := -STAR_CELL
-	while k < int(vw) + STAR_CELL:
-		var base := cam_x + float(k) - off
-		draw_set_transform(Vector2(base, 0.0), 0.0, Vector2.ONE)
-		for tr in _stars:
-			draw_polyline(tr, C_GLOW, 3.0)      # soft glow
-			draw_polyline(tr, C_TRACE, 1.0)     # bright core
-		for n in _nodes:
-			draw_circle(n.pos, n.r + 1.0, C_GLOW)
-			draw_circle(n.pos, n.r, C_NODE)
-		for p in _pulses:
-			var tr2: PackedVector2Array = _stars[p.idx]
-			var total := 0.0
-			for i in range(tr2.size() - 1):
-				total += tr2[i].distance_to(tr2[i + 1])
-			var d: float = fmod(tt * p.speed * total + p.phase * total, total)
-			var pos := _point_along(tr2, d)
-			draw_circle(pos, 2.0, C_PULSE)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # reset
-		k += STAR_CELL
+	var offx := fmod(cam_x * 0.35, float(STAR_CELL))
+	var offy := fmod(cam_y * 0.35, vh)
+	var kx := -STAR_CELL
+	while kx < int(vw) + STAR_CELL:
+		var jy := -int(vh)
+		while jy <= int(vh):
+			draw_set_transform(Vector2(cam_x + float(kx) - offx, cam_y + float(jy) - offy), 0.0, Vector2.ONE)
+			for tr in _stars:
+				draw_polyline(tr, C_GLOW, 3.0)      # soft glow
+				draw_polyline(tr, C_TRACE, 1.0)     # bright core
+			for n in _nodes:
+				draw_circle(n.pos, n.r + 1.0, C_GLOW)
+				draw_circle(n.pos, n.r, C_NODE)
+			for p in _pulses:
+				var tr2: PackedVector2Array = _stars[p.idx]
+				var total := 0.0
+				for i in range(tr2.size() - 1):
+					total += tr2[i].distance_to(tr2[i + 1])
+				var d: float = fmod(tt * p.speed * total + p.phase * total, total)
+				var pos := _point_along(tr2, d)
+				draw_circle(pos, 2.0, C_PULSE)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # reset
+			jy += int(vh)
+		kx += STAR_CELL
 
 
 const C_POLE_GREEN := Color(0, 1, 0)   # bright green pole

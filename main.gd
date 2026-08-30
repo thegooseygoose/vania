@@ -106,6 +106,9 @@ const ENEMY_SPD := 34.0
 const LEVEL_SCENE := preload("res://Level1.tscn")   # 1-1 (your sandbox)
 const LEVEL2_SCENE := preload("res://Level2.tscn")  # 1-2 (the power-up gauntlet)
 const LEVEL3_SCENE := preload("res://Level3.tscn")  # 1-3 (the metroidvania loop)
+const LEVEL4_SCENE := preload("res://Level4.tscn")  # 1-4 (longer world + save stations)
+const LEVEL5_SCENE := preload("res://Level5.tscn")  # 1-5 (blank + 30-tile floor, user-edited)
+const LEVEL6_SCENE := preload("res://Level6.tscn")  # 1-6 (copy of 1-5 to finish)
 const SOURCE_ID := 0
 
 # =========================================================================
@@ -119,6 +122,9 @@ const LEVEL_ORDER := [
 	[1, "1-1"],   # your sandbox level
 	[2, "1-2"],   # the power-up gauntlet
 	[3, "1-3"],   # the metroidvania loop (all power-ups + backtracking)
+	[20, "1-4"],  # longer world: all power-ups + 3 save stations + a tower finale
+	[21, "1-5"],  # blank starter (30-tile floor) — user-edited
+	[22, "1-6"],  # copy of 1-5, to be finished
 ]
 # per-FILE geometry (intrinsic to each level's layout, keyed by scene file #):
 #   lw = width in tiles, flag/castle = flagpole & castle columns, dark = black bg,
@@ -127,6 +133,9 @@ const LEVEL_GEOMETRY := {
 	1: {"lw": 214, "flag": 198, "castle": 202, "dark": false, "under": false, "noflag": true},   # Vania: no flagpole/castle finish
 	2: {"lw": 128, "flag": 120, "castle": 123, "dark": false, "under": false, "noflag": true},   # 1-2 gauntlet (goal tile, no flag)
 	3: {"lw": 128, "flag": 70, "castle": 72, "dark": false, "under": false, "noflag": true},   # Vania 1-3 metroidvania (goal tile, no flag)
+	20: {"lw": 160, "flag": 150, "castle": 152, "dark": false, "under": false, "noflag": true},   # Vania 1-4 longer world (goal tile, save stations, tower finale)
+	21: {"lw": 32, "flag": 26, "castle": 28, "dark": false, "under": false, "noflag": true},   # Vania 1-5 blank starter (30-tile floor)
+	22: {"lw": 160, "flag": 150, "castle": 152, "dark": false, "under": false, "noflag": true},   # Vania 1-6 (copy of 1-5, to finish)
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
 	6: {"lw": 200, "flag": 192, "castle": 195, "dark": false, "under": false},
@@ -156,11 +165,21 @@ const LEVEL_GEOMETRY := {
 #   file 16 = 3-3 -> 3-4 (play-slot 17, the final level).
 const ADVANCE_TO_SLOT := { 9: 3, 2: 6, 12: 13, 14: 13, 13: 15, 15: 8, 5: 16, 16: 17 }   # (Vania: removed 3->5 so finishing 1-3 ends the game)
 var _advance_next := 0          # play-slot the current advance is heading to
+var _clear_to_menu := false     # Vania: a cleared level returns to the level-select menu
 var _level_file := 1            # which LevelN.tscn is currently loaded
 var level                       # Level1.tscn instance (TileMapLayer + markers)
 var terrain                     # the TileMapLayer holding the terrain + collision
 var markers_layer               # TileMapLayer for door-switch/door/start/goal special tiles
 var powerups_layer              # TileMapLayer for the power-up icon tiles
+
+# METROIDVANIA SAVE: abilities + a checkpoint that survive death (set by a SaveStation).
+# saved_abilities is the snapshot player.spawn() restores from; empty = start powerless.
+const SAVE_PATH := "user://vania_save.json"
+var saved_abilities: Dictionary = {}
+var checkpoint_active := false
+var checkpoint_pos := Vector2.ZERO
+var checkpoint_file := 0
+var save_stations: Array = []
 var _player_start := Vector2(3 * TILE + TILE / 2.0, FLOOR * TILE)
 var _enemy_defs: Array = []     # [{pos:Vector2, type:String}]
 var _coin_defs: Array = []      # [Vector2]
@@ -216,7 +235,7 @@ var timing := true             # false once the flagpole is touched (freezes ela
 var game_state := "play"        # play | clear
 var saved_tier := "big"         # Vania: Mario STARTS as big/mushroom Mario (not small, not fire)
 var level_num := 1              # 1 = world 1-1, 2 = world 1-2
-const LEVEL_COUNT := 3          # 1-1 + 1-2 + 1-3
+const LEVEL_COUNT := 6          # 1-1 … 1-6
 static var debug_start_level := 1   # DEBUG: level the intro's stage-select boots into
 
 # --- SAVE FILES: 3 slots, each a name, the highest world reached, and a best time per level ---
@@ -919,6 +938,12 @@ func _physics_process(delta: float) -> void:
 # LEVEL SCENE (Level1.tscn — TileMapLayer terrain + Spawns markers)
 # =========================================================================
 func _scene_for_file(f: int) -> PackedScene:
+	if f == 22:
+		return LEVEL6_SCENE
+	if f == 21:
+		return LEVEL5_SCENE
+	if f == 20:
+		return LEVEL4_SCENE
 	if f == 3:
 		return LEVEL3_SCENE
 	return LEVEL2_SCENE if f == 2 else LEVEL_SCENE
@@ -1206,6 +1231,12 @@ func reset(preserve_progress := true) -> void:
 	var saved_score := score if preserve_progress else 0
 	var saved_coins := coins if preserve_progress else 0
 
+	# SAVE: a FRESH start (menu / new game) begins powerless with no checkpoint. A death-respawn
+	# (preserve_progress) keeps the in-session save-station checkpoint so you return to it with abilities.
+	if not preserve_progress:
+		checkpoint_active = false
+		saved_abilities = {}
+
 	# a fresh level instance restores every used / broken block
 	_instance_level()
 	record_progress(level_num)          # save-file: remember the furthest world reached
@@ -1360,6 +1391,10 @@ func reset(preserve_progress := true) -> void:
 	start_delay = START_DELAY   # brief frozen "get ready" while the stage fades in from black
 	fade_alpha = 1.0
 
+	# SAVE: on a death-respawn, return to the in-session save-station checkpoint (abilities kept in
+	# main.saved_abilities). A fresh start cleared these in reset(), so the level begins powerless.
+	if checkpoint_active and checkpoint_file == _level_file:
+		_player_start = checkpoint_pos
 	player.spawn(_player_start)
 
 	# pick the right track for this stage (1-4 = underground theme)
@@ -1494,12 +1529,16 @@ func _wire_powerups() -> void:
 	doors.clear()
 	door_switches.clear()
 	bikes.clear()
+	save_stations.clear()
 	for n in level.get_children():
 		if n is Powerup:
 			n.main = self
 		elif n is Bike:
 			n.main = self
 			bikes.append(n)
+		elif n is SaveStation:
+			n.main = self
+			save_stations.append(n)
 		elif n is GoalStar:
 			n.main = self
 		elif n is GrabPoint:
@@ -1511,6 +1550,58 @@ func _wire_powerups() -> void:
 			n.main = self
 			door_switches.append(n)
 	_spawn_switch_tiles()   # also turn painted atlas-16 tiles into switches
+
+
+const _ABILITY_KEYS := ["double_jump", "break", "morph", "walljump", "grapple", "boomerang", "waterwalk"]
+
+# snapshot the player's current abilities + this spot as the respawn point, and write the save file
+func save_checkpoint(pos: Vector2) -> void:
+	saved_abilities = {
+		"double_jump": player.has_double_jump, "break": player.has_break,
+		"morph": player.has_morph, "walljump": player.has_walljump,
+		"grapple": player.has_grapple, "boomerang": player.has_boomerang,
+		"waterwalk": player.has_waterwalk,
+	}
+	checkpoint_active = true
+	checkpoint_pos = pos
+	checkpoint_file = _level_file
+	_write_save()
+	if hud:
+		hud.show_message("GAME SAVED", 1.6)
+	sfx("powerup")
+
+func _write_save() -> void:
+	var data := {"file": checkpoint_file, "x": checkpoint_pos.x, "y": checkpoint_pos.y,
+		"abilities": saved_abilities}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(data))
+		f.close()
+
+func _load_save() -> Dictionary:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return {}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return {}
+	var txt := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(txt)
+	return parsed if parsed is Dictionary else {}
+
+# called from _instance_level: if a save exists for THIS level, restore abilities + checkpoint so
+# a death-respawn (and a fresh boot into the saved level) resumes at the station. Other levels
+# stay powerless-at-start (their file won't match the save).
+func _apply_save_for_level() -> void:
+	var s := _load_save()
+	if not s.is_empty() and int(s.get("file", -1)) == _level_file:
+		saved_abilities = s.get("abilities", {})
+		checkpoint_active = true
+		checkpoint_pos = Vector2(float(s.get("x", 0.0)), float(s.get("y", 0.0)))
+		checkpoint_file = _level_file
+	else:
+		saved_abilities = {}
+		checkpoint_active = false
 
 
 var door_tile_cells: Array = []   # painted door tiles (atlas 17) that vanish when opened
@@ -1540,15 +1631,24 @@ func _check_powerup_tiles() -> void:
 			powerup_tile_cells.remove_at(i)
 
 
-func open_doors() -> void:
+const DOOR_OPEN_RANGE := 160.0   # a switch only opens doors within 10 tiles (case-by-case, not all)
+
+func open_doors(from: Vector2 = Vector2.INF) -> void:
+	# open Door NODES within range (Vector2.INF = no limit, opens all — legacy callers)
 	for d in doors:
-		if is_instance_valid(d):
+		if is_instance_valid(d) and (from == Vector2.INF or from.distance_to(d.global_position) <= DOOR_OPEN_RANGE):
 			d.open()
-	# painted green-circle door tiles: erase them (removes the wall + its collision)
-	if markers_layer:
-		for cell in door_tile_cells:
-			markers_layer.erase_cell(cell)
-	door_tile_cells.clear()
+	# painted green-circle door tiles within range: erase them (removes the wall + its collision),
+	# leave the rest solid so a distant switch doesn't open them
+	var remaining: Array = []
+	for cell in door_tile_cells:
+		var c := Vector2(cell.x * 16 + 8, cell.y * 16 + 8)
+		if from == Vector2.INF or from.distance_to(c) <= DOOR_OPEN_RANGE:
+			if markers_layer:
+				markers_layer.erase_cell(cell)
+		else:
+			remaining.append(cell)
+	door_tile_cells = remaining
 
 
 # PAINTABLE door switch: paint tile atlas #16 (the solid PURPLE block) in the
@@ -2455,18 +2555,14 @@ func on_enter_castle() -> void:
 	game_state = "clear"
 	if not muted:
 		fanfare_player.play()   # stage-clear fanfare
-	# after each level, run the between-level sequence (full fanfare → hold →
-	# black next-level card → load the next level). The last level in the lineup ends —
-	# UNLESS it has an explicit ADVANCE_TO_SLOT override (e.g. the 2-2 tail at the last slot
-	# still leads onward to 2-3).
-	if level_num < LEVEL_COUNT or ADVANCE_TO_SLOT.has(_level_file):
-		advancing = true
-		# where this level leads: an explicit override (e.g. EXTRA 1 → 1-3) or just the next slot
-		_advance_next = int(ADVANCE_TO_SLOT.get(_level_file, level_num + 1))
-		advance_timer = 0.0
-		advance_phase = 0
-		advance_frames = 0
-		advance_ct = 0.0
+	# Vania: clearing ANY level plays the fanfare then returns to the LEVEL-SELECT menu
+	# (no auto-advance between levels).
+	advancing = true
+	_clear_to_menu = true
+	advance_timer = 0.0
+	advance_phase = 0
+	advance_frames = 0
+	advance_ct = 0.0
 
 
 
@@ -2489,6 +2585,12 @@ func _update_advance(delta: float) -> void:
 		# hold 40 frames after the jingle
 		advance_frames += 1
 		if advance_frames >= 40:
+			if _clear_to_menu:
+				# Vania: back to the level-select menu instead of loading a next level
+				_clear_to_menu = false
+				boot_to_levelsel = true       # intro opens straight on the LEVEL A/B/C menu
+				get_tree().change_scene_to_file("res://Intro.tscn")
+				return
 			advance_phase = 2
 			advance_ct = 0.0
 			# black card shows the NEXT level's label from the lineup (honouring the override)

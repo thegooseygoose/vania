@@ -63,14 +63,17 @@ var extending := false          # BIONIC COMMANDO: the claw is shooting out towa
 var extend_target := Vector2.ZERO
 var extend_time := 0.0
 const EXTEND_TIME := 0.24       # seconds for the claw to fly out and reach the hook (half speed = visible throw)
-const GRAPPLE_RANGE := 85.0      # how close you must be to latch on (= ROPE_MAX, so you swing at the
-								 # real distance you grabbed from — no snap/reel-in on latch)
+const GRAPPLE_RANGE := 85.0      # how close you must be to latch on; the rope then reels to ROPE_SET
+								 # so the swing is the same length no matter how far you grabbed from
 const SWING_GRAV := 1000.0       # gravity while swinging (halved — slower, gentler swing)
 const SWING_ACCEL := 700.0       # left/right pump strength (halved)
 const SWING_MAX := 180.0         # cap swing speed (halved = swing at half speed)
 const ROPE_MIN := 40.0
 const ROPE_MAX := 85.0           # longest swing the chain art can cover (art chains are ~88px); the
-								 # rope is the ACTUAL grab distance, capped here so the chain always reaches
+								 # rope STARTS at the grab distance (capped here) then reels to ROPE_SET
+const ROPE_SET := 48.0           # the swing normalises to THIS length after latching, so every grab
+								 # swings at the same, lava-clearing height (no more "sometimes too long")
+const REEL_SPEED := 150.0        # px/s the rope reels toward ROPE_SET (in OR out) once latched
 const FIST_X := 5.0              # Mario's raised-hand offset from centre (jump-pose fist at tex(13,2));
 const FIST_Y := -16.0            # x flips with facing. The rope pivots and the chain ends at THIS
 								 # hand pixel, so it visibly grabs his fist instead of floating nearby.
@@ -299,16 +302,17 @@ func spawn(feet_pos: Vector2) -> void:
 	bike = null
 	grappling = false         # never still latched/firing the grapple after a respawn
 	extending = false
-	# METROIDVANIA: power-ups do NOT persist across death or a level change. spawn() is the
-	# single entry point for both a death-respawn AND a level-load, so clearing the flags here
-	# starts every area powerless — each ability has to be re-collected in the new area.
-	has_double_jump = false
-	has_break = false
-	has_morph = false
-	has_walljump = false
-	has_grapple = false
-	has_boomerang = false
-	has_waterwalk = false
+	# METROIDVANIA: abilities are restored from the last SAVE (main.saved_abilities). With no save
+	# for this level the dict is empty, so every flag defaults false = start powerless, exactly as
+	# before; touching a SaveStation snapshots them so a death-respawn keeps what you had.
+	var ab: Dictionary = main.saved_abilities
+	has_double_jump = bool(ab.get("double_jump", false))
+	has_break = bool(ab.get("break", false))
+	has_morph = bool(ab.get("morph", false))
+	has_walljump = bool(ab.get("walljump", false))
+	has_grapple = bool(ab.get("grapple", false))
+	has_boomerang = bool(ab.get("boomerang", false))
+	has_waterwalk = bool(ab.get("waterwalk", false))
 	morphed = false
 	air_was_submerged = false
 	if sprite:
@@ -870,6 +874,9 @@ func _grapple_physics(delta: float) -> void:
 	# keep facing the grab point so his raised hand stays pointed at the chain
 	if absf(anchor.x - global_position.x) > 2.0:
 		facing = 1 if anchor.x > global_position.x else -1
+	# REEL: normalise the rope toward ROPE_SET so however far you grabbed from, the swing settles to
+	# the same lava-clearing length (reels in if too long, lets out a touch if too short).
+	rope_len = move_toward(rope_len, ROPE_SET, REEL_SPEED * delta)
 	# integrate, then constrain to the rope (remove the radial part of the velocity). The pendulum
 	# hangs from Mario's FIST (his raised hand), not his centre, so the chain end sits on his hand.
 	var fist_off := _fist_off()

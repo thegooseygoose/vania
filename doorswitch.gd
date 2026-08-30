@@ -18,7 +18,7 @@ func hit() -> void:
 	triggered = true
 	queue_redraw()
 	if main:
-		main.open_doors()
+		main.open_doors(global_position)   # only opens doors within range of THIS switch
 		main.sfx("kick")
 
 

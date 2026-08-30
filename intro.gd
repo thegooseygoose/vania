@@ -35,7 +35,8 @@ var menu_img: Texture2D        # main1.png — START GAME / LEVEL RECORDS / (loc
 var menu2_img: Texture2D       # main2.png — the UNLOCKED version (LEVEL SELECT active)
 var menu_rect: Rect2
 var menu_sel := 0             # 0 = START GAME, 1 = LEVEL RECORDS, 2 = LEVEL SELECT
-var mm_sel := 2              # Vania main menu default selection: 0=LEVEL 1, 1=LEVEL 2, 2=LEVEL 3
+var mm_sel := 0             # Vania main menu selection: 0=LEVEL A, 1=LEVEL B, 2=LEVEL C
+const MENU_SLOTS := [1, 2, 5]   # LEVEL A/B/C -> play-slots (1-1, 1-2, 1-5)
 var levelsel_idx := 0        # highlighted cell on the LEVEL SELECT grid (0..11)
 var levelsel_back := "menu"  # phase to return to from LEVEL SELECT ("menu" or "file" for the debug cheat)
 var _n_count := 0            # consecutive "N" presses on the file screen (NNNNN = debug level select)
@@ -201,17 +202,17 @@ func _mainmenu_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_UP, KEY_DOWN:
 				mm_sel = (mm_sel + 1) % 3
-			KEY_1:
+			KEY_A, KEY_1:
 				mm_sel = 0; confirm = true
-			KEY_2:
+			KEY_B, KEY_2:
 				mm_sel = 1; confirm = true
-			KEY_3:
+			KEY_C, KEY_3:
 				mm_sel = 2; confirm = true
 			KEY_ENTER, KEY_KP_ENTER, KEY_P, KEY_SPACE:
 				confirm = true
 		queue_redraw()
 	if confirm:
-		Main.debug_start_level = mm_sel + 1    # 0->1-1, 1->1-2, 2->1-3
+		Main.debug_start_level = MENU_SLOTS[mm_sel]   # A->1-1, B->1-2, C->1-5
 		_start_game()
 
 
@@ -398,16 +399,16 @@ func _draw() -> void:
 
 func _draw_mainmenu() -> void:
 	var w := float(VIEW_W)
-	font.draw_text(self, Vector2(0, 56), "VANIA", 3.0, C_PURPLE, w)
-	var opts := ["LEVEL 1", "LEVEL 2", "LEVEL 3"]
+	font.draw_text(self, Vector2(0, 54), "VANIA", 3.0, C_PURPLE, w)
+	var opts := ["LEVEL A", "LEVEL B", "LEVEL C"]
 	for i in opts.size():
-		var y := 118.0 + i * 28.0
+		var y := 116.0 + i * 28.0
 		var sel: bool = (i == mm_sel)
 		if sel:
 			_file_box(Rect2(72.0, y - 16.0, VIEW_W - 144.0, 26.0), C_PROMPT)
 		font.draw_text(self, Vector2(0, y), opts[i], 2.0, (C_PROMPT if sel else C_WHITE), w)
 	if fmod(t, 0.8) < 0.5:
-		font.draw_text(self, Vector2(0, 206), "UP DOWN PICK    ENTER START", 1.0, C_WHITE, w)
+		font.draw_text(self, Vector2(0, 214), "UP DOWN PICK    ENTER START", 1.0, C_WHITE, w)
 
 
 func _draw_file() -> void:

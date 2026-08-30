@@ -4,6 +4,8 @@
 [ext_resource type="TileSet" path="res://enemy_tiles.tileset.tres" id="2_wwdpc"]
 [ext_resource type="TileSet" path="res://coin_tiles.tileset.tres" id="3_6faey"]
 [ext_resource type="Script" path="res://powerup.gd" id="4_nc7oo"]
+[ext_resource type="TileSet" path="res://tiles_markers.tileset.tres" id="5_wwdpc"]
+[ext_resource type="TileSet" path="res://tiles_powerups.tileset.tres" id="6_6faey"]
 
 [node name="Level2" type="Node2D" unique_id=1754080124]
 
@@ -66,7 +68,7 @@ shape = "boomerang"
 
 [node name="Markers" type="TileMapLayer" parent="." unique_id=1786754912]
 tile_map_data = PackedByteArray("AAACAAwAAAASAAAAAABhAAkAAAARAAAAAABhAAoAAAARAAAAAABhAAsAAAARAAAAAABhAAwAAAARAAAAAABmAAwAAAAQAAAAAABsAAsAAAATAAAAAABhAAgAAAARAAAAAABhAAcAAAARAAAAAABhAAYAAAARAAAAAABhAAUAAAARAAAAAABhAAQAAAARAAAAAABhAAMAAAARAAAAAABhAAIAAAARAAAAAABhAAEAAAARAAAAAABhAAAAAAARAAAAAABhAP//AAARAAAAAAA=")
-tile_set = ExtResource("1_psxy2")
+tile_set = ExtResource("5_wwdpc")
 
 [node name="Powerups" type="TileMapLayer" parent="." unique_id=1932247737]
-tile_set = ExtResource("1_psxy2")
+tile_set = ExtResource("6_6faey")

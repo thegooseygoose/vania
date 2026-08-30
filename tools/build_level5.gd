@@ -1,78 +1,35 @@
 extends SceneTree
-## Build tool (run headless): generates res://Level5.tscn — world 1-5.
-## A deliberately EMPTY level for hand-editing: 250 tiles wide, two solid rows of
-## ORANGE (non-purple) ground (atlas 0 = more more.png A1), and a flagpole + castle
-## at the end. NOT underground — keeps the night-sky starfield. No enemies / coins /
-## blocks — paint your own on the layers in the editor.
-##   godot --headless --path <proj> -s tools/build_level5.gd
+## Builds Level5.tscn = "1-5": BLANK except a 30-tile-wide floor (rows 13-14) for you to edit.
+## Has all the standard layers (Terrain/Markers/Powerups/EnemyTiles/CoinTiles) + a PlayerStart so
+## you can paint straight away. Run: Godot --headless --path . -s tools/build_level5.gd
 
-const T := 16
-const FLOOR := 13
-const SID := 0
-const LW := 250
-const GROUND := 0            # more more.png A1 (orange/non-purple ground)
-const FLAG_X := 242
-const CASTLE_X := 245
+const G := 0     # ground / solid
 
-func _init() -> void:
-	var ts = load("res://tiles.tileset.tres")
-	var ets = load("res://enemy_tiles.tileset.tres")
-	var cts = load("res://coin_tiles.tileset.tres")
+var terrain: TileMapLayer
+var lvl: Node2D
 
-	var root := Node2D.new()
-	root.name = "Level5"
+func _initialize(): call_deferred("_run")
+func _run() -> void:
+	lvl = Node2D.new(); lvl.name = "Level5"
+	terrain = TileMapLayer.new(); terrain.name = "Terrain"; terrain.tile_set = load("res://tiles.tileset.tres"); lvl.add_child(terrain)
+	var markers := TileMapLayer.new(); markers.name = "Markers"; markers.tile_set = load("res://tiles_markers.tileset.tres"); lvl.add_child(markers)
+	var pw := TileMapLayer.new(); pw.name = "Powerups"; pw.tile_set = load("res://tiles_powerups.tileset.tres"); lvl.add_child(pw)
+	var enemyt := TileMapLayer.new(); enemyt.name = "EnemyTiles"; enemyt.tile_set = load("res://enemy_tiles.tileset.tres"); enemyt.visible = false; lvl.add_child(enemyt)
+	var coint := TileMapLayer.new(); coint.name = "CoinTiles"; coint.tile_set = load("res://coin_tiles.tileset.tres"); coint.visible = false; lvl.add_child(coint)
+	var spawns := Node2D.new(); spawns.name = "Spawns"; lvl.add_child(spawns)
+	var ps := Marker2D.new(); ps.name = "PlayerStart"; ps.position = Vector2(2 * 16 + 8, 13 * 16); spawns.add_child(ps)
+	var en := Node2D.new(); en.name = "Enemies"; spawns.add_child(en)
+	var co := Node2D.new(); co.name = "Coins"; spawns.add_child(co)
 
-	var terrain := TileMapLayer.new()
-	terrain.name = "Terrain"
-	terrain.tile_set = ts
-	root.add_child(terrain)
+	# the ONLY content: a 30-tile-wide floor (columns 0..29), rows 13-14 (stand on row 12)
+	for x in range(0, 30):
+		terrain.set_cell(Vector2i(x, 13), 0, Vector2i(G, 0))
+		terrain.set_cell(Vector2i(x, 14), 0, Vector2i(G, 0))
 
-	var enemy_tiles := TileMapLayer.new()   # paint enemies here in the editor
-	enemy_tiles.name = "EnemyTiles"
-	enemy_tiles.tile_set = ets
-	root.add_child(enemy_tiles)
-
-	var coin_tiles := TileMapLayer.new()    # paint coins here in the editor
-	coin_tiles.name = "CoinTiles"
-	coin_tiles.tile_set = cts
-	root.add_child(coin_tiles)
-
-	var preview := Node2D.new()
-	preview.name = "FlagpolePreview"
-	preview.set_script(load("res://flagpole_preview.gd"))
-	preview.set("flag_x", FLAG_X)
-	preview.set("castle_x", CASTLE_X)
-	root.add_child(preview)
-
-	# two solid rows of ORANGE ground across the whole 250-tile width
-	for x in range(LW):
-		terrain.set_cell(Vector2i(x, FLOOR), SID, Vector2i(GROUND, 0))
-		terrain.set_cell(Vector2i(x, FLOOR + 1), SID, Vector2i(GROUND, 0))
-
-	# spawns (player start; enemies/coins are painted on their tile layers above)
-	var spawns := Node2D.new()
-	spawns.name = "Spawns"
-	root.add_child(spawns)
-	var pstart := Marker2D.new()
-	pstart.name = "PlayerStart"
-	pstart.position = Vector2(3 * T + T / 2.0, FLOOR * T)
-	spawns.add_child(pstart)
-	var enemies_node := Node2D.new()
-	enemies_node.name = "Enemies"
-	spawns.add_child(enemies_node)
-	var coins_node := Node2D.new()
-	coins_node.name = "Coins"
-	spawns.add_child(coins_node)
-
-	_own(root, root)
+	for n in [terrain, markers, pw, enemyt, coint, spawns, ps, en, co]:
+		n.owner = lvl
 	var packed := PackedScene.new()
-	packed.pack(root)
+	packed.pack(lvl)
 	var err := ResourceSaver.save(packed, "res://Level5.tscn")
-	print("build_level5: saved (err=%d) LW=%d flag=%d castle=%d cells=%d" % [
-		err, LW, FLAG_X, CASTLE_X, terrain.get_used_cells().size()])
+	print("saved Level5.tscn err=", err)
 	quit()
-
-func _own(node: Node, owner: Node) -> void:
-	for c in node.get_children():
-		c.owner = owner
-		_own(c, owner)

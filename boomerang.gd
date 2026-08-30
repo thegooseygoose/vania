@@ -8,10 +8,48 @@ var t := 0.0
 var returning := false
 const OUT_TIME := 0.64        # flies out longer → about twice the distance
 const SPEED := 420.0
+const SPIN_FPS := 18.0        # boomerang.png frame cycle speed
+const DRAW_SCALE := 1.8       # the art is ~8px; scale it up to a readable size
+
+var _frames: Array = []       # 8 orientations built from the 3 art frames + mirrors = a full spin
 
 
 func _ready() -> void:
 	z_index = 6
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_build_frames()
+
+# The sheet (sprites/v sprites/boom.png) has 3 crescent frames whose OPENING points right / up-right /
+# up. Mirroring them fills the other four diagonals/quadrants, giving a smooth 8-step 360° spin.
+func _build_frames() -> void:
+	var sheet: Image = (load("res://sprites/v sprites/boom.png") as Texture2D).get_image()
+	if sheet.is_compressed():
+		sheet.decompress()
+	sheet.convert(Image.FORMAT_RGBA8)
+	var a1 := _crop(sheet, Rect2i(33, 164, 5, 8))    # opens right
+	var a2 := _crop(sheet, Rect2i(61, 164, 8, 8))    # opens up-right
+	var a3 := _crop(sheet, Rect2i(90, 166, 8, 5))    # opens up
+	_frames = [
+		ImageTexture.create_from_image(a1),                          # right
+		ImageTexture.create_from_image(a2),                          # up-right
+		ImageTexture.create_from_image(a3),                          # up
+		ImageTexture.create_from_image(_flip(a2, true, false)),      # up-left
+		ImageTexture.create_from_image(_flip(a1, true, false)),      # left
+		ImageTexture.create_from_image(_flip(a2, true, true)),       # down-left
+		ImageTexture.create_from_image(_flip(a3, false, true)),      # down
+		ImageTexture.create_from_image(_flip(a2, false, true)),      # down-right
+	]
+
+func _crop(sheet: Image, box: Rect2i) -> Image:
+	var img := Image.create(box.size.x, box.size.y, false, Image.FORMAT_RGBA8)
+	img.blit_rect(sheet, box, Vector2i.ZERO)
+	return img
+
+func _flip(src: Image, fx: bool, fy: bool) -> Image:
+	var img := src.duplicate()
+	if fx: img.flip_x()
+	if fy: img.flip_y()
+	return img
 
 
 func _physics_process(delta: float) -> void:
@@ -19,7 +57,6 @@ func _physics_process(delta: float) -> void:
 		queue_free()
 		return
 	t += delta
-	rotation += delta * 22.0
 	queue_redraw()
 	if not returning:
 		var f: float = 1.0 - clampf(t / OUT_TIME, 0.0, 1.0)   # ease to a stop, then return
@@ -45,6 +82,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _draw() -> void:
-	var c := Color(0.3, 0.95, 0.9)
-	draw_line(Vector2(-7, 4), Vector2(0, -7), c, 3.0)
-	draw_line(Vector2(0, -7), Vector2(7, 4), c, 3.0)
+	if _frames.is_empty():
+		return
+	var tex: Texture2D = _frames[int(t * SPIN_FPS) % _frames.size()]
+	var sz: Vector2 = tex.get_size() * DRAW_SCALE
+	draw_texture_rect(tex, Rect2(-sz * 0.5, sz), false)   # centred, spinning via the frame cycle

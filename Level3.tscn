@@ -5,6 +5,8 @@
 [ext_resource type="TileSet" path="res://coin_tiles.tileset.tres" id="3_h8oof"]
 [ext_resource type="Script" path="res://powerup.gd" id="4_nqeel"]
 [ext_resource type="Script" path="res://grabpoint.gd" id="5_u5lf4"]
+[ext_resource type="TileSet" path="res://tiles_markers.tileset.tres" id="6_h8oof"]
+[ext_resource type="TileSet" path="res://tiles_powerups.tileset.tres" id="7_nqeel"]
 
 [node name="Level3" type="Node2D" unique_id=307908130]
 
@@ -71,7 +73,7 @@ shape = "waterwalk"
 
 [node name="Markers" type="TileMapLayer" parent="." unique_id=498670359]
 tile_map_data = PackedByteArray("AAACAAwAAAASAAAAAABdAAkAAAARAAAAAABdAAoAAAARAAAAAABdAAsAAAARAAAAAABdAAwAAAARAAAAAABiAAwAAAAQAAAAAAB2AAMAAAATAAAAAAA=")
-tile_set = ExtResource("1_qlmxs")
+tile_set = ExtResource("6_h8oof")
 
 [node name="Powerups" type="TileMapLayer" parent="." unique_id=1544066881]
-tile_set = ExtResource("1_qlmxs")
+tile_set = ExtResource("7_nqeel")
