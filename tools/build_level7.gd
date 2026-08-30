@@ -1,13 +1,12 @@
 extends SceneTree
-## Builds Level8.tscn = "1-8" (menu "LEVEL E"): a RIDER KICK showcase. Grab the rider-kick power-up,
-## then leap off ledges and dive-kick DOWN-forward onto enemy clusters and through brick barriers.
-## A continuous safety floor means a missed kick never soft-locks. Run:
-##   Godot --headless --path . -s tools/build_level8.gd
+## Builds Level7.tscn = "1-7" (menu "LEVEL D"): a DASH-ATTACK showcase. Grab the dash power-up, then
+## blast through brick walls and enemy lines and across a gap with it. Run:
+##   Godot --headless --path . -s tools/build_level7.gd
 
-const G := 0
-const B := 1
-const ST := 18
-const GL := 19
+const G := 0     # ground
+const B := 1     # brick (dash/ground-pound breaks it)
+const ST := 18   # start marker
+const GL := 19   # goal star
 
 var terrain: TileMapLayer
 var markers: TileMapLayer
@@ -32,7 +31,7 @@ func _save(nm, x, y):
 
 func _initialize(): call_deferred("_run")
 func _run() -> void:
-	lvl = Node2D.new(); lvl.name = "Level8"
+	lvl = Node2D.new(); lvl.name = "Level7"
 	terrain = TileMapLayer.new(); terrain.name = "Terrain"; terrain.tile_set = load("res://tiles.tileset.tres"); lvl.add_child(terrain)
 	markers = TileMapLayer.new(); markers.name = "Markers"; markers.tile_set = load("res://tiles_markers.tileset.tres"); lvl.add_child(markers)
 	powerups = TileMapLayer.new(); powerups.name = "Powerups"; powerups.tile_set = load("res://tiles_powerups.tileset.tres"); lvl.add_child(powerups)
@@ -43,42 +42,41 @@ func _run() -> void:
 	var en := Node2D.new(); en.name = "Enemies"; spawns.add_child(en)
 	var co := Node2D.new(); co.name = "Coins"; spawns.add_child(co)
 
-	# continuous safety floor the whole way (a missed dive-kick just lands you here)
-	ground(0, 66)
-
-	# ===== S1 START + RIDER KICK power-up + save =====
+	# ===== S1 START + DASH power-up + save (x0..14) =====
+	ground(0, 14)
 	mk(2, 12, ST)
 	_save("Save1", 6, 12)
-	pw(9, 11, 56)                        # RIDER KICK power-up tile
+	pw(9, 11, 55)                        # DASH power-up tile (touch to collect)
 	coin(11, 11); coin(12, 11)
 
-	# ===== S2 first LEDGE to leap from onto an enemy cluster =====
-	solid(15, 19, 8, 12)                 # raised block; climb the step, stand on row 7
-	solid(13, 13, 12, 12); solid(14, 14, 10, 12)   # a little staircase up to it
-	coin(17, 5)
-	goomba(23, 12); goomba(25, 12); goomba(27, 12)   # dive-kick down onto them (bounce-chain)
+	# ===== S2 BRICK WALL — dash straight through it (x16..17) =====
+	ground(14, 30)
+	solid(16, 17, 10, 12, B)             # a brick wall blocking the path; dash smashes it
+	coin(16, 8); coin(17, 8)
 
-	# ===== S3 BRICK BARRIER — leap and kick through it =====
-	solid(31, 33, 6, 12)                 # a tall block ledge
-	solid(35, 36, 9, 12, B)              # brick wall just past it — dive-kick smashes through
-	coin(32, 3)
-	goomba(40, 12); goomba(42, 12)
+	# ===== S3 ENEMY LINE — dash to plough through them (x20..30) =====
+	goomba(21, 12); goomba(24, 12); goomba(27, 12); goomba(30, 12)
 
-	# ===== S4 high platform with a BRICK FLOOR to kick DOWN through =====
-	solid(46, 52, 7, 7)                  # a high platform (stand on row 6)
-	solid(48, 50, 8, 8, B)              # brick floor under it — kick straight down through it
-	solid(46, 46, 8, 12); solid(47, 47, 10, 12)   # steps up to the platform
-	coin(49, 4); coin(54, 11)
-	goomba(49, 12)                       # waiting below the brick floor
+	# ===== S4 THICK BRICK WALL — dash through at speed (x32..34) =====
+	ground(32, 38)
+	solid(32, 34, 10, 12, B)
+	coin(33, 8)
 
-	# ===== S5 SAVE + GOAL =====
-	_save("Save2", 58, 12)
-	mk(63, 12, GL)                       # GOAL star
-	coin(61, 11); coin(62, 11)
+	# ===== S5 DASH GAP — the dash carries you across (x40..42) =====
+	ground(35, 39)
+	# gap at x40..42 (no floor); ground resumes at 43
+	ground(43, 60)
+	coin(41, 12)
+
+	# ===== S6 SAVE + FINAL WALL → GOAL (x44..60) =====
+	_save("Save2", 45, 12)
+	solid(50, 52, 10, 12, B)             # last brick wall before the goal
+	mk(57, 12, GL)                       # GOAL star
+	coin(55, 11); coin(56, 11)
 
 	for n in [terrain, markers, powerups, enemyt, coint, spawns, ps, en, co]:
 		n.owner = lvl
 	var packed := PackedScene.new()
 	packed.pack(lvl)
-	print("saved Level8.tscn err=", ResourceSaver.save(packed, "res://Level8.tscn"))
+	print("saved Level7.tscn err=", ResourceSaver.save(packed, "res://Level7.tscn"))
 	quit()

@@ -109,6 +109,11 @@ const LEVEL3_SCENE := preload("res://Level3.tscn")  # 1-3 (the metroidvania loop
 const LEVEL4_SCENE := preload("res://Level4.tscn")  # 1-4 (longer world + save stations)
 const LEVEL5_SCENE := preload("res://Level5.tscn")  # 1-5 (blank + 30-tile floor, user-edited)
 const LEVEL6_SCENE := preload("res://Level6.tscn")  # 1-6 (copy of 1-5 to finish)
+const LEVEL7_SCENE := preload("res://Level7.tscn")  # 1-7 (LEVEL D: dash-attack showcase)
+const LEVEL8_SCENE := preload("res://Level8.tscn")  # 1-8 (LEVEL E: rider-kick showcase)
+const LEVEL9_SCENE := preload("res://Level9.tscn")  # 1-9 (LEVEL F: overclock/time-slow showcase)
+const LEVEL10_SCENE := preload("res://Level10.tscn")  # 1-10 (LEVEL G: hover-jets showcase)
+const LEVEL11_SCENE := preload("res://Level11.tscn")  # 1-11 (LEVEL H: all-new-powers test/showcase)
 const SOURCE_ID := 0
 
 # =========================================================================
@@ -125,6 +130,11 @@ const LEVEL_ORDER := [
 	[20, "1-4"],  # longer world: all power-ups + 3 save stations + a tower finale
 	[21, "1-5"],  # blank starter (30-tile floor) — user-edited
 	[22, "1-6"],  # copy of 1-5, to be finished
+	[23, "1-7"],  # LEVEL D: dash-attack showcase
+	[24, "1-8"],  # LEVEL E: rider-kick showcase
+	[25, "1-9"],  # LEVEL F: overclock / time-slow showcase
+	[26, "1-10"], # LEVEL G: hover-jets showcase
+	[27, "1-11"], # LEVEL H: all-new-powers test/showcase
 ]
 # per-FILE geometry (intrinsic to each level's layout, keyed by scene file #):
 #   lw = width in tiles, flag/castle = flagpole & castle columns, dark = black bg,
@@ -136,6 +146,11 @@ const LEVEL_GEOMETRY := {
 	20: {"lw": 160, "flag": 150, "castle": 152, "dark": false, "under": false, "noflag": true},   # Vania 1-4 longer world (goal tile, save stations, tower finale)
 	21: {"lw": 32, "flag": 26, "castle": 28, "dark": false, "under": false, "noflag": true},   # Vania 1-5 blank starter (30-tile floor)
 	22: {"lw": 160, "flag": 150, "castle": 152, "dark": false, "under": false, "noflag": true},   # Vania 1-6 (copy of 1-5, to finish)
+	23: {"lw": 64, "flag": 58, "castle": 60, "dark": false, "under": false, "noflag": true},   # Vania 1-7 LEVEL D dash showcase
+	24: {"lw": 70, "flag": 64, "castle": 66, "dark": false, "under": false, "noflag": true},   # Vania 1-8 LEVEL E rider-kick showcase
+	25: {"lw": 80, "flag": 74, "castle": 76, "dark": false, "under": false, "noflag": true},   # Vania 1-9 LEVEL F time-slow showcase
+	26: {"lw": 80, "flag": 74, "castle": 76, "dark": false, "under": false, "noflag": true},   # Vania 1-10 LEVEL G hover showcase
+	27: {"lw": 96, "flag": 90, "castle": 92, "dark": false, "under": false, "noflag": true},   # Vania 1-11 LEVEL H all-new-powers test
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
 	6: {"lw": 200, "flag": 192, "castle": 195, "dark": false, "under": false},
@@ -235,8 +250,24 @@ var timing := true             # false once the flagpole is touched (freezes ela
 var game_state := "play"        # play | clear
 var saved_tier := "big"         # Vania: Mario STARTS as big/mushroom Mario (not small, not fire)
 var level_num := 1              # 1 = world 1-1, 2 = world 1-2
-const LEVEL_COUNT := 6          # 1-1 … 1-6
+const LEVEL_COUNT := 11         # 1-1 … 1-11
 static var debug_start_level := 1   # DEBUG: level the intro's stage-select boots into
+static var selected_char := "mario"  # character picked at the intro: "mario" or "kamen" (mask on Mario)
+
+# OVERCLOCK (time-slow): world_slow scales enemy/hazard delta (1.0 normal, <1 slowed); the player is unaffected.
+var world_slow := 1.0
+var time_slow_t := 0.0
+var time_slow_cd := 0.0
+const TIME_SLOW_DUR := 6.0
+const TIME_SLOW_COOLDOWN := 2.5
+const TIME_SLOW_FACTOR := 0.45
+
+func start_time_slow() -> void:
+	if time_slow_cd > 0.0 or time_slow_t > 0.0:
+		return
+	time_slow_t = TIME_SLOW_DUR
+	time_slow_cd = TIME_SLOW_DUR + TIME_SLOW_COOLDOWN
+	sfx("powerup")
 
 # --- SAVE FILES: 3 slots, each a name, the highest world reached, and a best time per level ---
 static var save_slot := 0                 # which of the 3 files is active this run
@@ -339,7 +370,7 @@ static func resume_slot() -> int:
 	return int(CANON_LEVELS[hi][1])
 var world_label := "1-1"        # shown in the HUD
 var underground := false         # true = black bg, no starfield (1-4 is underground)
-const SKY_COLOR := Color(0.02, 0.06, 0.04)   # near-black green "inside a computer" backdrop
+const SKY_COLOR := Color(0.09, 0.13, 0.26)   # dark-blue "inside a computer" backdrop (green circuit on top)
 var advancing := false          # 1-1 beaten → running the between-level sequence
 var advance_timer := 0.0
 var advance_phase := 0          # 0 wait fanfare, 1 hold 10 frames, 2 black card
@@ -796,6 +827,16 @@ func actors_frozen() -> bool:
 func _physics_process(delta: float) -> void:
 	if paused:
 		return
+	# OVERCLOCK: tick the time-slow window + cooldown, set the world slow factor, and pitch-down the music
+	if time_slow_cd > 0.0:
+		time_slow_cd = maxf(0.0, time_slow_cd - delta)
+	if time_slow_t > 0.0:
+		time_slow_t = maxf(0.0, time_slow_t - delta)
+	var slowing := time_slow_t > 0.0
+	world_slow = TIME_SLOW_FACTOR if slowing else 1.0
+	if music_player:
+		var target := 0.55 if slowing else 1.0    # drop the music into a warbly slow-mo while slowed
+		music_player.pitch_scale = move_toward(music_player.pitch_scale, target, 3.0 * delta)
 	if attract_mode:
 		_attract_t += delta
 		if _attract_t >= ATTRACT_MAX:
@@ -938,6 +979,16 @@ func _physics_process(delta: float) -> void:
 # LEVEL SCENE (Level1.tscn — TileMapLayer terrain + Spawns markers)
 # =========================================================================
 func _scene_for_file(f: int) -> PackedScene:
+	if f == 27:
+		return LEVEL11_SCENE
+	if f == 26:
+		return LEVEL10_SCENE
+	if f == 25:
+		return LEVEL9_SCENE
+	if f == 24:
+		return LEVEL8_SCENE
+	if f == 23:
+		return LEVEL7_SCENE
 	if f == 22:
 		return LEVEL6_SCENE
 	if f == 21:
@@ -1560,7 +1611,8 @@ func save_checkpoint(pos: Vector2) -> void:
 		"double_jump": player.has_double_jump, "break": player.has_break,
 		"morph": player.has_morph, "walljump": player.has_walljump,
 		"grapple": player.has_grapple, "boomerang": player.has_boomerang,
-		"waterwalk": player.has_waterwalk,
+		"waterwalk": player.has_waterwalk, "dash": player.has_dash,
+		"riderkick": player.has_riderkick, "timeslow": player.has_timeslow, "hover": player.has_hover,
 	}
 	checkpoint_active = true
 	checkpoint_pos = pos
@@ -1659,10 +1711,12 @@ const DOOR_TILE_ATLAS := 17     # green-circle tile = a door that vanishes when 
 const START_TILE_ATLAS := 18    # blue arrow tile = where Mario starts (only one per level)
 const GOAL_TILE_ATLAS := 19     # gold star tile = touch it to finish the level (COURSE CLEAR)
 const HOOK_TILE_ATLAS := 47     # yellow-U hook tile = a paintable grapple point (stays visible)
+const BIKE_TILE_ATLAS := 59     # bike tile (Powerups layer) = spawns a rideable Bike where painted
 # paintable power-up icon tiles (power.png) -> the power they grant on touch.
 # 48 morph, 49 double jump, 50 brick break, 51 grapple, 52 boomerang, 53 wall jump, 54 water gravity.
 const POWERUP_TILE_SHAPE := {48: "circle", 49: "square", 50: "triangle", 51: "star",
-	52: "boomerang", 53: "diamond", 54: "waterwalk"}
+	52: "boomerang", 53: "diamond", 54: "waterwalk", 55: "dash", 56: "riderkick",
+	57: "timeslow", 58: "hover"}
 
 var goal_cells: Array = []
 var powerup_tile_cells: Array = []    # painted power-up tiles as [cell, shape] (grant on touch)
@@ -1685,6 +1739,13 @@ func _spawn_switch_tiles() -> void:
 			var pax: int = powerups_layer.get_cell_atlas_coords(cell).x
 			if POWERUP_TILE_SHAPE.has(pax):
 				powerup_tile_cells.append([cell, POWERUP_TILE_SHAPE[pax]])  # stays until collected
+			elif pax == BIKE_TILE_ATLAS:
+				powerups_layer.erase_cell(cell)                # the tile just marks where a bike spawns
+				var bk := Bike.new()
+				bk.main = self
+				level.add_child(bk)
+				bk.position = Vector2(cell.x * 16 + 8, cell.y * 16 + 8)
+				bikes.append(bk)
 	# MARKER tiles (switch/door/start/goal) live on their own Markers layer
 	if markers_layer:
 		for cell in markers_layer.get_used_cells():
@@ -1757,11 +1818,17 @@ func collect_powerup(shape: String) -> void:
 		"star": player.has_grapple = true
 		"boomerang": player.has_boomerang = true
 		"waterwalk": player.has_waterwalk = true
+		"dash": player.has_dash = true
+		"riderkick": player.has_riderkick = true
+		"timeslow": player.has_timeslow = true
+		"hover": player.has_hover = true
 	sfx("powerup")
 	var msg := {"square": "DOUBLE JUMP!", "triangle": "GROUND POUND!  (jump, then Down)",
 		"circle": "MORPH BALL!  (press Down)", "diamond": "WALL JUMP!  (jump off walls)",
 		"star": "GRAPPLE BEAM!  (hold Y/C to swing, release to launch)", "boomerang": "BOOMERANG!  (C, or B on controller)",
-		"waterwalk": "GRAVITY SUIT  YOU CAN MOVE FREELY THROUGH WATER"}
+		"waterwalk": "GRAVITY SUIT  YOU CAN MOVE FREELY THROUGH WATER", "dash": "DASH ATTACK!  (press F / LB to lunge)",
+		"riderkick": "RIDER KICK!  (jump, then K / RT to dive-kick)",
+		"timeslow": "OVERCLOCK!  (press T / L3 to slow time)", "hover": "HOVER JETS!  (hold Jump in the air to float)"}
 	if hud:
 		hud.show_message(String(msg.get(shape, "POWER UP!")), 2.5)
 

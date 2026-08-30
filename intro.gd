@@ -35,8 +35,11 @@ var menu_img: Texture2D        # main1.png — START GAME / LEVEL RECORDS / (loc
 var menu2_img: Texture2D       # main2.png — the UNLOCKED version (LEVEL SELECT active)
 var menu_rect: Rect2
 var menu_sel := 0             # 0 = START GAME, 1 = LEVEL RECORDS, 2 = LEVEL SELECT
-var mm_sel := 0             # Vania main menu selection: 0=LEVEL A, 1=LEVEL B, 2=LEVEL C
-const MENU_SLOTS := [1, 2, 5]   # LEVEL A/B/C -> play-slots (1-1, 1-2, 1-5)
+var mm_sel := 0             # Vania main menu selection: 0=LEVEL A … 7=LEVEL H
+const MENU_SLOTS := [1, 2, 5, 7, 8, 9, 10, 11]   # A..H -> play-slots (1-1,1-2,1-5,dash,rider-kick,time-slow,hover,all-new)
+var char_sel := 0          # character-select: 0=MARIO, 1=KAMEN
+var pending_level := 1     # the level chosen on the menu, launched after character select
+var char_preview := []     # [Mario stand tex, Kamen (masked) stand tex]
 var levelsel_idx := 0        # highlighted cell on the LEVEL SELECT grid (0..11)
 var levelsel_back := "menu"  # phase to return to from LEVEL SELECT ("menu" or "file" for the debug cheat)
 var _n_count := 0            # consecutive "N" presses on the file screen (NNNNN = debug level select)
@@ -91,6 +94,13 @@ func _ready() -> void:
 	if ResourceLoader.exists("res://sprites/new player/MAIN2.png"):
 		menu2_img = load("res://sprites/new player/MAIN2.png")
 	Main.load_saves()
+
+	# character-select previews: Mario's stand sprite, and the baked Kamen stand sprite
+	char_preview = [load("res://sprites/player/big_stand_r.png")]
+	if ResourceLoader.exists("res://sprites/player/kamen_big_stand_r.png"):
+		char_preview.append(load("res://sprites/player/kamen_big_stand_r.png"))
+	else:
+		char_preview.append(char_preview[0])
 
 	music = AudioStreamPlayer.new()
 	music.stream = load("res://intro/apog.mp3")
@@ -154,6 +164,9 @@ func _input(event: InputEvent) -> void:
 	if phase == "mainmenu":
 		_mainmenu_input(event)
 		return
+	if phase == "charselect":
+		_charselect_input(event)
+		return
 	if phase == "file":
 		_file_input(event)
 		return
@@ -194,25 +207,61 @@ func _mainmenu_input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
 			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN:
-				mm_sel = (mm_sel + 1) % 3
+				mm_sel = (mm_sel + 1) % 8
 			JOY_BUTTON_START, JOY_BUTTON_A:
 				confirm = true
 		queue_redraw()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_UP, KEY_DOWN:
-				mm_sel = (mm_sel + 1) % 3
+				mm_sel = (mm_sel + 1) % 8
 			KEY_A, KEY_1:
 				mm_sel = 0; confirm = true
 			KEY_B, KEY_2:
 				mm_sel = 1; confirm = true
 			KEY_C, KEY_3:
 				mm_sel = 2; confirm = true
+			KEY_D, KEY_4:
+				mm_sel = 3; confirm = true
+			KEY_E, KEY_5:
+				mm_sel = 4; confirm = true
+			KEY_F, KEY_6:
+				mm_sel = 5; confirm = true
+			KEY_G, KEY_7:
+				mm_sel = 6; confirm = true
+			KEY_H, KEY_8:
+				mm_sel = 7; confirm = true
 			KEY_ENTER, KEY_KP_ENTER, KEY_P, KEY_SPACE:
 				confirm = true
 		queue_redraw()
 	if confirm:
-		Main.debug_start_level = MENU_SLOTS[mm_sel]   # A->1-1, B->1-2, C->1-5
+		pending_level = MENU_SLOTS[mm_sel]   # A->1-1, B->1-2, C->1-5; launched after char select
+		_goto("charselect")
+
+
+func _charselect_input(event: InputEvent) -> void:
+	var confirm := false
+	if event is InputEventJoypadButton and event.pressed:
+		match event.button_index:
+			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT:
+				char_sel = (char_sel + 1) % 2
+			JOY_BUTTON_START, JOY_BUTTON_A:
+				confirm = true
+			JOY_BUTTON_B:
+				_goto("mainmenu"); queue_redraw(); return
+		queue_redraw()
+	elif event is InputEventKey and event.pressed and not event.echo:
+		match event.keycode:
+			KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT:
+				char_sel = (char_sel + 1) % 2
+			KEY_ESCAPE:
+				_goto("mainmenu"); queue_redraw(); return
+			KEY_ENTER, KEY_KP_ENTER, KEY_P, KEY_SPACE:
+				confirm = true
+		queue_redraw()
+	if confirm:
+		Main.selected_char = "kamen" if char_sel == 1 else "mario"
+		Main.debug_start_level = pending_level
 		_start_game()
 
 
@@ -381,6 +430,8 @@ func _draw() -> void:
 	draw_rect(Rect2(0, 0, VIEW_W, VIEW_H), Color.BLACK)   # wrestling intro is on black
 	if phase == "mainmenu":
 		_draw_mainmenu()
+	elif phase == "charselect":
+		_draw_charselect()
 	elif phase == "title":
 		_draw_title()
 	elif phase == "file":
@@ -400,15 +451,39 @@ func _draw() -> void:
 func _draw_mainmenu() -> void:
 	var w := float(VIEW_W)
 	font.draw_text(self, Vector2(0, 54), "VANIA", 3.0, C_PURPLE, w)
-	var opts := ["LEVEL A", "LEVEL B", "LEVEL C"]
+	var opts := ["LEVEL A", "LEVEL B", "LEVEL C", "LEVEL D", "LEVEL E", "LEVEL F", "LEVEL G", "LEVEL H"]
 	for i in opts.size():
-		var y := 116.0 + i * 28.0
+		var y := 88.0 + i * 16.0
 		var sel: bool = (i == mm_sel)
 		if sel:
-			_file_box(Rect2(72.0, y - 16.0, VIEW_W - 144.0, 26.0), C_PROMPT)
-		font.draw_text(self, Vector2(0, y), opts[i], 2.0, (C_PROMPT if sel else C_WHITE), w)
+			_file_box(Rect2(72.0, y - 11.0, VIEW_W - 144.0, 15.0), C_PROMPT)
+		font.draw_text(self, Vector2(0, y), opts[i], 1.5, (C_PROMPT if sel else C_WHITE), w)
 	if fmod(t, 0.8) < 0.5:
 		font.draw_text(self, Vector2(0, 214), "UP DOWN PICK    ENTER START", 1.0, C_WHITE, w)
+
+
+func _draw_charselect() -> void:
+	var w := float(VIEW_W)
+	font.draw_text(self, Vector2(0, 44), "SELECT PLAYER", 1.5, C_PURPLE, w)
+	var labels := ["MARIO", "KAMEN"]
+	var cx := [w * 0.32, w * 0.68]     # two column centres
+	var base_y := 150.0                # sprite feet line
+	for i in 2:
+		var sel: bool = (i == char_sel)
+		var cxi: float = cx[i]
+		if i < char_preview.size() and char_preview[i]:
+			var tx: Texture2D = char_preview[i]
+			var sc := 3.0
+			var sw: float = tx.get_width() * sc
+			var sh: float = tx.get_height() * sc
+			if sel:
+				_file_box(Rect2(cxi - sw / 2.0 - 8.0, base_y - sh - 8.0, sw + 16.0, sh + 34.0), C_PROMPT)
+			draw_texture_rect(tx, Rect2(cxi - sw / 2.0, base_y - sh, sw, sh), false)
+		var lab: String = labels[i]
+		var lw: float = font.text_w(lab, 1.5)
+		font.draw_text(self, Vector2(cxi - lw / 2.0, base_y + 18.0), lab, 1.5, (C_PROMPT if sel else C_WHITE))
+	if fmod(t, 0.8) < 0.5:
+		font.draw_text(self, Vector2(0, 214), "LEFT RIGHT PICK   ENTER START", 1.0, C_WHITE, w)
 
 
 func _draw_file() -> void:

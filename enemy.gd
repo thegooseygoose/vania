@@ -78,6 +78,7 @@ func spawn(feet_pos: Vector2) -> void:
 func _physics_process(delta: float) -> void:
 	if main.paused or main.intro_12 or main.actors_frozen():
 		return
+	delta *= main.world_slow        # OVERCLOCK: enemies crawl while the world is slowed (player isn't)
 	if not active:
 		if global_position.x < main.cam_x + main.VIEW_W + 32:
 			active = true
@@ -105,6 +106,9 @@ func _physics_process(delta: float) -> void:
 		velocity.x = dir * spd
 
 	velocity.y = minf(velocity.y + main.GRAVITY * delta, main.MAX_FALL)
+	# OVERCLOCK: move_and_slide() uses the real physics delta, so scale VELOCITY here to actually
+	# slow the enemy's movement while time is slowed (velocity.x is re-set from dir*spd next frame).
+	velocity *= main.world_slow
 	move_and_slide()
 	_flip_t += delta
 	if is_on_wall():

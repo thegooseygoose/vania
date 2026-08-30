@@ -6,6 +6,7 @@ class_name Player
 
 var main                       # Main level manager (untyped to avoid a cyclic class dependency)
 var sprite: Sprite2D
+var _kamen_tex := {}            # KAMEN character: baked head-replaced pose sprites, keyed like main.tex
 var shape: CollisionShape2D
 var col_size: Vector2             # AABB size used for gameplay hit tests
 var _caps: CapsuleShape2D         # physics shape — a capsule glides over tile seams
@@ -44,6 +45,25 @@ var has_walljump := false       # DIAMOND: slide down walls and leap off them
 var has_grapple := false        # STAR: shoot X near a grab point to zip up to it
 var has_boomerang := false      # BOOMERANG: press X to throw a returning boomerang
 var has_waterwalk := false      # W: walk on top of water (it becomes solid footing; no sink/slow)
+var has_dash := false            # DASH: press Dash (F / controller LB) to lunge forward, smashing enemies + brittle blocks
+var dashing := false
+var dash_timer := 0.0
+var dash_cd := 0.0
+const DASH_SPEED := 245.0
+const DASH_TIME := 0.20
+const DASH_COOLDOWN := 0.35
+var has_riderkick := false        # RIDER KICK: in the AIR, press Dash to dive-kick down-forward (Kamen's finisher)
+var riderkicking := false
+var has_timeslow := false         # OVERCLOCK: press to briefly slow the world (not you)
+var has_hover := false            # HOVER JETS: hold Jump in the air to float down slowly (limited fuel)
+var hover_fuel := 0.0
+const HOVER_FUEL_MAX := 1.1       # seconds of hover per airtime
+const HOVER_FALL := 26.0          # capped fall speed while hovering (gentle float)
+const KICK_X := 175.0             # forward speed of the dive-kick
+const KICK_Y := 300.0             # downward speed of the dive-kick
+const KICK_BOUNCE := -235.0       # pop off the ground/wall/enemy after a kick lands
+const KICK_HOP := -120.0          # small upward pop at the START (leap into the bicycle kick)
+const KICK_SPIN := 26.0           # how fast the body somersaults (bicycle-kick spin, rad/s)
 var riding := false             # on the bike — lava becomes solid footing you drive across
 var bike = null                # the Bike node currently being ridden
 const BIKE_MOVE := 1.08         # bike speed of normal (0.72 +50%)
@@ -181,6 +201,14 @@ func _ready() -> void:
 	sprite.texture_filter = TEXTURE_FILTER_NEAREST
 	sprite.z_index = 5
 	add_child(sprite)
+	# KAMEN character = Mario's body/animation with his head replaced by the baked Kamen head.
+	# Load every kamen_<pose>.png keyed to match main.tex ("big_stand_r" -> kamen_big_stand_r.png).
+	for tier_p in ["big", "fire"]:
+		for suf in ["_stand_l", "_stand_r", "_walk1", "_walk2", "_walk3", "_walk4", "_walk5",
+				"_walk6", "_jump_l", "_jump_r", "_skid", "_duck"]:
+			var kp := "res://sprites/player/kamen_%s%s.png" % [tier_p, suf]
+			if ResourceLoader.exists(kp):
+				_kamen_tex[tier_p + suf] = load(kp)
 	# SPLIT WATER TINT: a canvas shader that only tints fragments whose WORLD-Y is at or below
 	# the water surface line. The vertex stage carries each fragment's world-Y (MODEL_MATRIX
 	# folds in the player transform, sprite offset and any morph rotation), so half-submerged
@@ -313,6 +341,14 @@ func spawn(feet_pos: Vector2) -> void:
 	has_grapple = bool(ab.get("grapple", false))
 	has_boomerang = bool(ab.get("boomerang", false))
 	has_waterwalk = bool(ab.get("waterwalk", false))
+	has_dash = bool(ab.get("dash", false))
+	has_riderkick = bool(ab.get("riderkick", false))
+	has_timeslow = bool(ab.get("timeslow", false))
+	has_hover = bool(ab.get("hover", false))
+	hover_fuel = HOVER_FUEL_MAX
+	dashing = false
+	riderkicking = false
+	dash_cd = 0.0
 	morphed = false
 	air_was_submerged = false
 	if sprite:
@@ -333,7 +369,8 @@ func spawn(feet_pos: Vector2) -> void:
 	velocity = Vector2.ZERO
 	facing = 1                    # start facing right
 	global_position = Vector2(feet_pos.x, feet_pos.y - col_size.y / 2.0)
-	_apply_frame(main.tex[tier() + "_stand_r"])
+	var start_key: String = tier() + "_stand_r"     # first frame — use the Kamen head if picked
+	_apply_frame(_kamen_tex[start_key] if (main.selected_char == "kamen" and _kamen_tex.has(start_key)) else main.tex[start_key])
 
 
 func _physics_process(delta: float) -> void:
@@ -429,6 +466,7 @@ func _update_alive(delta: float) -> void:
 		fling_t = 0.0   # landing ends the fling; normal speed resumes
 	if on_floor:
 		air_jump_used = false
+		hover_fuel = HOVER_FUEL_MAX     # refuel the hover jets on landing
 		air_was_submerged = submerged   # reset on land (still true if standing in shallow water)
 		if slamming:
 			slamming = false
@@ -465,6 +503,36 @@ func _update_alive(delta: float) -> void:
 	if grappling:
 		_grapple_physics(delta)
 		return
+	# DASH ATTACK (ground) / RIDER KICK (air): the same button, context-sensitive
+	if dash_cd > 0.0:
+		dash_cd = maxf(0.0, dash_cd - delta)
+	if dashing:
+		_dash_physics(delta)
+		return
+	if riderkicking:
+		_riderkick_physics(delta)
+		return
+	# DASH (own button: F / LB) — ground only
+	if has_dash and dash_cd <= 0.0 and on_floor and not extending and not submerged \
+			and Input.is_action_just_pressed("dash"):
+		dashing = true
+		dash_timer = DASH_TIME
+		dash_cd = DASH_TIME + DASH_COOLDOWN
+		velocity = Vector2(float(facing) * DASH_SPEED, 0.0)
+		main.sfx("jump_big" if (big or fire) else "jump_small")
+		_dash_physics(delta)
+		return
+	# RIDER KICK (own button: K / right trigger RT) — air only
+	if has_riderkick and not on_floor and not extending and not submerged \
+			and Input.is_action_just_pressed("riderkick"):
+		riderkicking = true
+		velocity = Vector2(float(facing) * KICK_X, KICK_HOP)   # leap up first (into the bicycle kick)
+		main.sfx("jump_big" if (big or fire) else "jump_small")
+		_riderkick_physics(delta)
+		return
+	# OVERCLOCK: slow the whole world (not you) for a few seconds
+	if has_timeslow and Input.is_action_just_pressed("timeslow"):
+		main.start_time_slow()
 	# BIONIC COMMANDO: the claw is flying out toward a hook. Mario keeps normal physics (below) while
 	# it extends; when the arm reaches the hook it LATCHES and the swing begins.
 	if extending:
@@ -659,6 +727,10 @@ func _update_alive(delta: float) -> void:
 				g *= FLING_GRAV                # only a SLIGHT gravity ease so the arc carries across
 											   # (no feather-fall — it lands naturally, not floaty)
 		velocity.y = minf(velocity.y + g * delta, fall_cap)
+		# HOVER JETS: hold Jump while falling to drift down gently until the fuel runs out
+		if has_hover and jump_key and velocity.y > 0.0 and hover_fuel > 0.0 and not submerged and wall_dir == 0:
+			velocity.y = minf(velocity.y, HOVER_FALL)
+			hover_fuel = maxf(0.0, hover_fuel - delta)
 		if velocity.y >= 0.0:
 			stomp_bounce = false           # bounce arc peaked → normal control resumes
 		# DIAMOND wall-slide: hugging a wall caps the fall speed
@@ -822,6 +894,85 @@ func _morph_physics(delta: float, on_floor: bool) -> void:
 	sprite.position = Vector2.ZERO
 	sprite.rotation += velocity.x * delta * 0.14
 	grounded = is_on_floor()
+
+
+func _dash_physics(delta: float) -> void:
+	velocity = Vector2(float(facing) * DASH_SPEED, 0.0)     # flat horizontal lunge, no gravity
+	# smash brittle blocks across the WHOLE body height at the column just ahead (tunnel through walls)
+	var col := int(floor((global_position.x + float(facing) * (half_w() + 4.0)) / main.TILE))
+	var top := int(floor((global_position.y - col_size.y / 2.0 + 2.0) / main.TILE))
+	var bot := int(floor((global_position.y + col_size.y / 2.0 - 2.0) / main.TILE))
+	for row in range(top, bot + 1):
+		main.smash_tile(col, row)
+	# knock out any enemy we plough through
+	for e in main.enemies:
+		if is_instance_valid(e) and not e.dead and e.has_method("knock_out") \
+				and global_position.distance_to(e.global_position) < 16.0:
+			e.knock_out(facing)
+			main.sfx("kick")
+	move_and_slide()
+	_animate()
+	_spawn_afterimage(Color(0.4, 0.9, 1.0, 0.55))          # cyan motion-blur ghost trail
+	# strobe a bright cyan flash on Mario himself while dashing
+	sprite.modulate = Color(1.8, 2.2, 3.0) if int(dash_timer * 40.0) % 2 == 0 else Color(0.6, 1.2, 2.2)
+	dash_timer -= delta
+	if dash_timer <= 0.0 or is_on_wall():
+		dashing = false
+		sprite.modulate = Color.WHITE                      # clear the flash when the dash ends
+
+
+# RIDER KICK: a diagonal down-forward dive-kick. Smashes enemies + brittle blocks; pops off on impact.
+func _riderkick_physics(delta: float) -> void:
+	# arc: leap up briefly (KICK_HOP) then accelerate into a steep dive — like a bicycle kick
+	velocity.x = float(facing) * KICK_X
+	velocity.y = minf(velocity.y + 2600.0 * delta, KICK_Y)
+	# smash brittle blocks across the body height at the column ahead, plus the cell below the feet
+	var feet := global_position.y + col_size.y / 2.0
+	var acol := int(floor((global_position.x + float(facing) * (half_w() + 2.0)) / main.TILE))
+	var atop := int(floor((global_position.y - col_size.y / 2.0 + 2.0) / main.TILE))
+	var abot := int(floor((feet + 2.0) / main.TILE))
+	for row in range(atop, abot + 1):
+		main.smash_tile(acol, row)
+	main.smash_tile(int(floor(global_position.x / main.TILE)), abot)   # straight down through a floor
+	# blast any enemy the kick reaches
+	var hit := false
+	for e in main.enemies:
+		if is_instance_valid(e) and not e.dead and e.has_method("knock_out") \
+				and global_position.distance_to(e.global_position) < 18.0:
+			e.knock_out(facing)
+			main.sfx("kick")
+			hit = true
+	move_and_slide()
+	_animate()
+	sprite.rotation += float(facing) * KICK_SPIN * delta   # somersault — the bicycle-kick flip
+	_spawn_afterimage(Color(1.0, 0.7, 0.2, 0.6))           # orange kick streak
+	sprite.modulate = Color(3.0, 2.2, 0.8) if int(Engine.get_physics_frames()) % 2 == 0 else Color(2.2, 1.4, 0.4)
+	# land the kick on a floor / wall / enemy -> pop off and end it
+	if is_on_floor() or is_on_wall() or hit:
+		riderkicking = false
+		velocity = Vector2(float(facing) * 90.0, KICK_BOUNCE)
+		air_jump_used = false                              # reward a clean kick with a fresh air-jump
+		main.sfx("stomp" if hit else "bump")
+		sprite.modulate = Color.WHITE
+		sprite.rotation = 0.0                              # land upright
+
+# a fading echo of the current pose, left behind at this position (dash / kick streak)
+func _spawn_afterimage(col: Color) -> void:
+	var parent := get_parent()
+	if parent == null or sprite.texture == null:
+		return
+	var ghost := Sprite2D.new()
+	ghost.texture = sprite.texture
+	ghost.flip_h = sprite.flip_h
+	ghost.rotation = sprite.global_rotation               # match the spin (bicycle-kick flip)
+	ghost.texture_filter = TEXTURE_FILTER_NEAREST
+	ghost.z_index = 4                                      # just behind Mario (his sprite is z 5)
+	ghost.modulate = col
+	parent.add_child(ghost)
+	ghost.global_position = sprite.global_position
+	var tw := ghost.create_tween()
+	tw.tween_property(ghost, "modulate:a", 0.0, 0.22)
+	tw.tween_callback(ghost.queue_free)
 
 
 func _do_slam_break() -> void:
@@ -1154,7 +1305,12 @@ func _apply_frame(t: Texture2D, flip := false) -> void:
 func _animate() -> void:
 	var pre := tier()
 	var kf := _pose_key_flip()
-	_apply_frame(main.tex[pre + kf[0]], kf[1])
+	var key: String = pre + kf[0]
+	var t: Texture2D = main.tex[key]
+	# KAMEN character: swap in the baked head-replaced sprite for this pose, if one exists
+	if main.selected_char == "kamen" and _kamen_tex.has(key):
+		t = _kamen_tex[key]
+	_apply_frame(t, kf[1])
 
 # The current pose as a [suffix, flip] pair, independent of the power tier — so the
 # fire-flower flash can recolour whatever pose Mario is frozen in.

@@ -1,11 +1,9 @@
 extends SceneTree
-## Builds Level8.tscn = "1-8" (menu "LEVEL E"): a RIDER KICK showcase. Grab the rider-kick power-up,
-## then leap off ledges and dive-kick DOWN-forward onto enemy clusters and through brick barriers.
-## A continuous safety floor means a missed kick never soft-locks. Run:
-##   Godot --headless --path . -s tools/build_level8.gd
+## Level9.tscn = "1-9" (menu "LEVEL F"): OVERCLOCK / time-slow showcase. Grab the power-up, then hit
+## T / L3 to slow the world and calmly weave through enemy swarms + hop enemy-topped platforms over a pit.
+## Run: Godot --headless --path . -s tools/build_level9.gd
 
 const G := 0
-const B := 1
 const ST := 18
 const GL := 19
 
@@ -32,7 +30,7 @@ func _save(nm, x, y):
 
 func _initialize(): call_deferred("_run")
 func _run() -> void:
-	lvl = Node2D.new(); lvl.name = "Level8"
+	lvl = Node2D.new(); lvl.name = "Level9"
 	terrain = TileMapLayer.new(); terrain.name = "Terrain"; terrain.tile_set = load("res://tiles.tileset.tres"); lvl.add_child(terrain)
 	markers = TileMapLayer.new(); markers.name = "Markers"; markers.tile_set = load("res://tiles_markers.tileset.tres"); lvl.add_child(markers)
 	powerups = TileMapLayer.new(); powerups.name = "Powerups"; powerups.tile_set = load("res://tiles_powerups.tileset.tres"); lvl.add_child(powerups)
@@ -43,42 +41,37 @@ func _run() -> void:
 	var en := Node2D.new(); en.name = "Enemies"; spawns.add_child(en)
 	var co := Node2D.new(); co.name = "Coins"; spawns.add_child(co)
 
-	# continuous safety floor the whole way (a missed dive-kick just lands you here)
-	ground(0, 66)
-
-	# ===== S1 START + RIDER KICK power-up + save =====
+	# ===== S1 START + OVERCLOCK power-up + save =====
+	ground(0, 20)
 	mk(2, 12, ST)
 	_save("Save1", 6, 12)
-	pw(9, 11, 56)                        # RIDER KICK power-up tile
+	pw(9, 11, 57)                         # OVERCLOCK (time-slow) tile
 	coin(11, 11); coin(12, 11)
 
-	# ===== S2 first LEDGE to leap from onto an enemy cluster =====
-	solid(15, 19, 8, 12)                 # raised block; climb the step, stand on row 7
-	solid(13, 13, 12, 12); solid(14, 14, 10, 12)   # a little staircase up to it
-	coin(17, 5)
-	goomba(23, 12); goomba(25, 12); goomba(27, 12)   # dive-kick down onto them (bounce-chain)
+	# ===== S2 ENEMY SWARM CORRIDOR — slow time and stroll through =====
+	ground(20, 40)
+	for gx in [22, 24, 26, 28, 30, 32, 34, 36, 38]:
+		goomba(gx, 12)                    # a packed line of goombas; slow them to weave through
+	solid(20, 40, 8, 8)                   # a low ceiling so you can't just jump over the swarm
+	coin(29, 10)
 
-	# ===== S3 BRICK BARRIER — leap and kick through it =====
-	solid(31, 33, 6, 12)                 # a tall block ledge
-	solid(35, 36, 9, 12, B)              # brick wall just past it — dive-kick smashes through
-	coin(32, 3)
-	goomba(40, 12); goomba(42, 12)
+	# ===== S3 ENEMY-TOPPED PLATFORMS over a PIT — slow time to nail the hops =====
+	# small platforms (no floor between) each patrolled by a goomba; time-slow makes the timing trivial
+	ground(40, 44)
+	_save("Save2", 42, 12)
+	solid(48, 50, 11, 11); goomba(49, 10)
+	solid(54, 56, 11, 11); goomba(55, 10)
+	solid(60, 62, 11, 11); goomba(61, 10)
+	ground(66, 78)                        # safe landing floor past the pit
+	coin(52, 8); coin(58, 8)
 
-	# ===== S4 high platform with a BRICK FLOOR to kick DOWN through =====
-	solid(46, 52, 7, 7)                  # a high platform (stand on row 6)
-	solid(48, 50, 8, 8, B)              # brick floor under it — kick straight down through it
-	solid(46, 46, 8, 12); solid(47, 47, 10, 12)   # steps up to the platform
-	coin(49, 4); coin(54, 11)
-	goomba(49, 12)                       # waiting below the brick floor
-
-	# ===== S5 SAVE + GOAL =====
-	_save("Save2", 58, 12)
-	mk(63, 12, GL)                       # GOAL star
-	coin(61, 11); coin(62, 11)
+	# ===== S4 GOAL =====
+	mk(75, 12, GL)
+	coin(72, 11); coin(73, 11)
 
 	for n in [terrain, markers, powerups, enemyt, coint, spawns, ps, en, co]:
 		n.owner = lvl
 	var packed := PackedScene.new()
 	packed.pack(lvl)
-	print("saved Level8.tscn err=", ResourceSaver.save(packed, "res://Level8.tscn"))
+	print("saved Level9.tscn err=", ResourceSaver.save(packed, "res://Level9.tscn"))
 	quit()

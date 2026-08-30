@@ -45,6 +45,9 @@ func refresh() -> void:
 
 func _paint(ci: CanvasItem) -> void:
 	var w := float(main.VIEW_W)
+	# OVERCLOCK: a blue wash over the screen while time is slowed
+	if main.world_slow < 1.0:
+		ci.draw_rect(Rect2(0, 0, w, float(main.VIEW_H)), Color(0.2, 0.5, 1.0, 0.16))
 	# 3-4 end credits: the overworld run-and-scroll finale takes over the whole screen
 	if main.game_state == "credits":
 		_paint_credits(ci)
