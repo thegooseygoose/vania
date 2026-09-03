@@ -57,14 +57,7 @@ func _paint(ci: CanvasItem) -> void:
 		ci.draw_rect(Rect2(0, 0, w, float(main.VIEW_H)), Color.BLACK)
 		font.draw_text(ci, Vector2(0, main.VIEW_H / 2.0 - 6), main.level_card_text, 2.0, Color.WHITE, w)
 		return
-	# top status row
-	font.draw_text(ci, Vector2(16, 11), "MARIO", 1.0, Color.WHITE)
-	font.draw_text(ci, Vector2(16, 21), str(main.score).pad_zeros(6), 1.0, Color.WHITE)
-	# spinning coin icon (A1/A2/A3), same cadence as the world coins, just smaller
-	var cf: int = int(main.qanim_phase / main.QANIM_STEP) % 3
-	ci.draw_texture_rect_region(coins_tex, Rect2(87, 12, 7, 9),
-		Rect2(cf * 16 + 3, 1, 10, 14))
-	font.draw_text(ci, Vector2(97, 21), "X" + str(main.coins).pad_zeros(2), 1.0, Color.WHITE)
+	# top status row — score / MARIO / coins removed; the minimap lives in that top-left space now
 	font.draw_text(ci, Vector2(150, 11), "WORLD", 1.0, Color.WHITE)
 	font.draw_text(ci, Vector2(159, 21), main.world_label, 1.0, Color.WHITE)
 	font.draw_text(ci, Vector2(206, 11), "TIME", 1.0, Color.WHITE)
@@ -171,9 +164,9 @@ const _HEART := ["0110110", "1111111", "1111111", "0111110", "0011100", "0001000
 func _paint_hearts(ci: CanvasItem) -> void:
 	var cur: int = int(main.player.hearts)
 	var maxh: int = int(main.player.MAX_HEARTS)
-	var hy := 30.0
+	var hy := 12.0                          # top row, to the RIGHT of the minimap (before WORLD)
 	for i in maxh:
-		var hx := 16.0 + float(i) * 9.0
+		var hx := 92.0 + float(i) * 9.0
 		var col := Color(0.95, 0.2, 0.32) if i < cur else Color(0.24, 0.24, 0.30)
 		for ry in _HEART.size():
 			var row: String = _HEART[ry]
@@ -205,8 +198,8 @@ func _paint_minimap(ci: CanvasItem) -> void:
 	var scale: float = minf(boxw / float(rect.size.x), boxh / float(rect.size.y))
 	var mw: float = float(rect.size.x) * scale
 	var mh: float = float(rect.size.y) * scale
-	var ox: float = float(main.VIEW_W) - mw - 5.0
-	var oy := 30.0
+	var ox := 5.0                                       # TOP-LEFT (replaces the old score/MARIO/coins)
+	var oy := 10.0
 	ci.draw_rect(Rect2(ox - 2, oy - 2, mw + 4, mh + 4), Color(0.9, 0.9, 1.0, 0.85))   # frame
 	ci.draw_rect(Rect2(ox - 1, oy - 1, mw + 2, mh + 2), Color(0.06, 0.06, 0.12, 0.85)) # backdrop
 	var cs: float = maxf(1.0, ceil(scale))

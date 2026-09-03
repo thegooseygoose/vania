@@ -8,16 +8,43 @@ var t := 0.0
 var returning := false
 const OUT_TIME := 0.64        # flies out longer → about twice the distance
 const SPEED := 420.0
+const BULLET_SPEED := 300.0   # NEW BOOM (bullet): straight-line travel speed
+const BULLET_RANGE := 64.0    # travels this far (px), then stops & despawns
+const BULLET_LIFE := 2.0      # safety despawn (also despawns if it goes off-screen)
+var _bullet_traveled := 0.0   # distance the bullet has flown
 const SPIN_FPS := 18.0        # boomerang.png frame cycle speed
 const DRAW_SCALE := 1.8       # the art is ~8px; scale it up to a readable size
 
 var _frames: Array = []       # 8 orientations built from the 3 art frames + mirrors = a full spin
+var _bullet_tex: Texture2D    # current test look — "new boom.png" (a bullet), used instead of the spin
+
+# Use the new bullet art ("new boom.png") for now; the old crescent-spin logic is kept below,
+# just bypassed while this is true. Set false to go back to the spinning boomerang.
+const USE_NEW_BOOM := true
 
 
 func _ready() -> void:
 	z_index = 6
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_build_frames()
+	_build_frames()            # keep the old boomerang art built in the background
+	_build_bullet()
+
+# The current test visual: whatever opaque shape is drawn in "new boom.png" (auto-cropped to its
+# content, so it updates when you re-save the file). Needs an --import after editing the png.
+func _build_bullet() -> void:
+	var path := "res://sprites/v sprites/new boom.png"
+	if not ResourceLoader.exists(path):
+		return
+	var img: Image = (load(path) as Texture2D).get_image()
+	if img.is_compressed():
+		img.decompress()
+	img.convert(Image.FORMAT_RGBA8)
+	var r := img.get_used_rect()
+	if r.size.x <= 0 or r.size.y <= 0:
+		return
+	var crop := Image.create(r.size.x, r.size.y, false, Image.FORMAT_RGBA8)
+	crop.blit_rect(img, r, Vector2i.ZERO)
+	_bullet_tex = ImageTexture.create_from_image(crop)
 
 # The sheet (sprites/v sprites/boom.png) has 3 crescent frames whose OPENING points right / up-right /
 # up. Mirroring them fills the other four diagonals/quadrants, giving a smooth 8-step 360° spin.
@@ -58,7 +85,20 @@ func _physics_process(delta: float) -> void:
 		return
 	t += delta
 	queue_redraw()
-	if not returning:
+	if USE_NEW_BOOM:
+		# BULLET: fly straight at constant speed until it has travelled BULLET_RANGE (64px),
+		# then stop & despawn. (Also despawns off-screen / after BULLET_LIFE as a safety.)
+		var step: float = BULLET_SPEED * delta
+		step = minf(step, BULLET_RANGE - _bullet_traveled)   # don't overshoot the 64px range
+		global_position.x += dir * step
+		_bullet_traveled += step
+		if _bullet_traveled >= BULLET_RANGE \
+				or t > BULLET_LIFE \
+				or global_position.x < main.cam_x - 32.0 \
+				or global_position.x > main.cam_x + float(main.VIEW_W) + 32.0:
+			queue_free()
+			return
+	elif not returning:
 		var f: float = 1.0 - clampf(t / OUT_TIME, 0.0, 1.0)   # ease to a stop, then return
 		global_position.x += dir * SPEED * delta * f
 		if t >= OUT_TIME:
@@ -86,6 +126,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _draw() -> void:
+	# NEW BOOM (bullet) test look — drawn centred, no spin. Old crescent spin kept below.
+	if USE_NEW_BOOM and _bullet_tex != null:
+		var bsz: Vector2 = _bullet_tex.get_size()
+		draw_texture_rect(_bullet_tex, Rect2(-bsz * 0.5, bsz), false)
+		return
 	if _frames.is_empty():
 		return
 	var tex: Texture2D = _frames[int(t * SPIN_FPS) % _frames.size()]

@@ -7,6 +7,7 @@ class_name Player
 var main                       # Main level manager (untyped to avoid a cyclic class dependency)
 var sprite: Sprite2D
 var _kamen_tex := {}            # KAMEN character: baked head-replaced pose sprites, keyed like main.tex
+var _guy_tex := {}              # GUY character: 3 frames (walk1/walk2/jump), guy.png
 var shape: CollisionShape2D
 var col_size: Vector2             # AABB size used for gameplay hit tests
 var _caps: CapsuleShape2D         # physics shape — a capsule glides over tile seams
@@ -14,6 +15,8 @@ var _caps: CapsuleShape2D         # physics shape — a capsule glides over tile
 const SMALL := Vector2(12, 14)   # 14 (not 16) so small Mario fits through a 1-tile gap
 								 # with ~2px headroom, SMB1-style (his 16px sprite overhangs)
 const BIG := Vector2(12, 28)
+const GUY_SIZE := Vector2(12, 24)   # GUY is shorter — his hitbox matches his 24px sprite so he
+                                     # bonks ceilings by the SPRITE, not invisible pixels above it
 const DUCK := Vector2(12, 14)       # crouch collision — ~1 tile tall so big/fire Mario fits
 									# UNDER a 1-tile gap and can slide through it (SMB1)
 const DUCK_DECEL := 120.0           # ABSOLUTE duck-slide deceleration (px/s²). A ~6-tile slide
@@ -219,6 +222,11 @@ func _ready() -> void:
 			var kp := "res://sprites/player/kamen_%s%s.png" % [tier_p, suf]
 			if ResourceLoader.exists(kp):
 				_kamen_tex[tier_p + suf] = load(kp)
+	# GUY character: a simple 3-frame guy (2 walk + 1 jump), guy.png
+	for gk in ["walk1", "walk2", "jump"]:
+		var gp := "res://sprites/player/guy_%s.png" % gk
+		if ResourceLoader.exists(gp):
+			_guy_tex[gk] = load(gp)
 	# SPLIT WATER TINT: a canvas shader that only tints fragments whose WORLD-Y is at or below
 	# the water surface line. The vertex stage carries each fragment's world-Y (MODEL_MATRIX
 	# folds in the player transform, sprite offset and any morph rotation), so half-submerged
@@ -253,14 +261,14 @@ func _ready() -> void:
 
 
 # the morph-ball sprite = the user's ball2.png art. The ball occupies this box in
-# ball2.png (getbbox = (13,31)-(33,55), 20x24) — RE-DETECT if the user re-saves it.
+# ball2.png (getbbox = (13,31)-(29,47), 16x16 as of 2026-09-03 re-save) — RE-DETECT if re-saved.
 # Fit it into a centered 16x16 (preserving aspect) so it rolls cleanly about its center.
 func _make_ball_tex() -> ImageTexture:
 	var sheet: Image = (load("res://sprites/v sprites/ball2.png") as Texture2D).get_image()
 	if sheet.is_compressed():
 		sheet.decompress()
 	sheet.convert(Image.FORMAT_RGBA8)
-	var src := Rect2i(13, 31, 20, 24)
+	var src := Rect2i(13, 31, 16, 16)
 	var crop := Image.create(src.size.x, src.size.y, false, Image.FORMAT_RGBA8)
 	crop.blit_rect(sheet, src, Vector2i.ZERO)
 	var s: float = 16.0 / float(maxi(src.size.x, src.size.y))
@@ -276,6 +284,10 @@ func _set_col(sz: Vector2) -> void:
 	col_size = sz
 	_caps.radius = sz.x / 2.0
 	_caps.height = sz.y          # height >= 2*radius (12), true for 16 and 28
+
+# the standing (big-tier) collision size for the current character — GUY is shorter
+func _stand_size() -> Vector2:
+	return GUY_SIZE if main.selected_char == "guy" else BIG
 
 func half_w() -> float:
 	return col_size.x / 2.0
@@ -340,7 +352,7 @@ func spawn(feet_pos: Vector2) -> void:
 	var t: String = main.saved_tier
 	fire = (t == "fire")
 	big = (t == "big" or t == "fire")
-	_set_col(BIG if big else SMALL)
+	_set_col(_stand_size() if big else SMALL)
 	dead = false
 	dead_timer = 0.0
 	died_by_pit = false
@@ -391,7 +403,10 @@ func spawn(feet_pos: Vector2) -> void:
 	facing = 1                    # start facing right
 	global_position = Vector2(feet_pos.x, feet_pos.y - col_size.y / 2.0)
 	var start_key: String = tier() + "_stand_r"     # first frame — use the Kamen head if picked
-	_apply_frame(_kamen_tex[start_key] if (main.selected_char == "kamen" and _kamen_tex.has(start_key)) else main.tex[start_key])
+	if main.selected_char == "guy" and not _guy_tex.is_empty():
+		_apply_frame(_guy_tex["walk1"], facing < 0)
+	else:
+		_apply_frame(_kamen_tex[start_key] if (main.selected_char == "kamen" and _kamen_tex.has(start_key)) else main.tex[start_key])
 
 
 func _physics_process(delta: float) -> void:
@@ -615,7 +630,7 @@ func _update_alive(delta: float) -> void:
 		want_duck = false
 		duck_locked = false
 	# can't stand up under a low ceiling — stay crouched so he keeps SLIDING under the blocks
-	if not want_duck and ducking and (big or fire) and _blocked_above(BIG.y):
+	if not want_duck and ducking and (big or fire) and _blocked_above(_stand_size().y):
 		want_duck = true
 	# ground-pound: hold the DUCK pose through the whole slam (freeze + crash)
 	if slamming and (big or fire):
@@ -623,7 +638,7 @@ func _update_alive(delta: float) -> void:
 	# crouch shrinks the collision (feet stay planted) so big/fire Mario fits under a 1-tile
 	# gap; standing restores full height. Small Mario never ducks.
 	if big or fire:
-		_set_stance(DUCK if want_duck else BIG)
+		_set_stance(DUCK if want_duck else _stand_size())
 	ducking = want_duck
 
 	var dir := 0.0
@@ -879,13 +894,13 @@ func _enter_morph() -> void:
 	duck_locked = false
 	_set_stance(MORPH)
 	sprite.texture = _ball_tex
-	sprite.position = Vector2.ZERO
+	sprite.position = Vector2(0, -1)   # morph ball sits 1px higher
 	sprite.rotation = 0.0
 	main.sfx("bump")
 
 
 func _exit_morph() -> bool:
-	var stand: Vector2 = BIG if (big or fire) else SMALL
+	var stand: Vector2 = _stand_size() if (big or fire) else SMALL
 	if _blocked_above(stand.y):
 		return false                     # no headroom — stay a ball
 	morphed = false
@@ -896,6 +911,9 @@ func _exit_morph() -> bool:
 
 
 const MORPH_SPEED := 1.5          # morph ball rolls 1.5x normal move speed
+const BALL_BOUNCE_MIN := 100.0   # only bounce when landing faster than this (a real drop, not a step)
+const BALL_BOUNCE_FACTOR := 0.7  # bounce keeps this fraction of the impact speed → diminishing hops
+const BALL_BOUNCE_MAX := 240.0   # cap so it stays a LITTLE bounce (Metroid morph ball)
 func _morph_physics(delta: float, on_floor: bool) -> void:
 	var running := Input.is_action_pressed("run")
 	var max_s: float = (main.RUN_MAX if running else main.WALK_MAX) * MORPH_SPEED
@@ -915,10 +933,17 @@ func _morph_physics(delta: float, on_floor: bool) -> void:
 	if Input.is_action_just_pressed("jump") or Input.is_action_just_pressed("move_up"):
 		if _exit_morph():
 			return
+	var was_air := not is_on_floor()
+	var vy_impact := velocity.y                # downward speed at the moment of landing
 	move_and_slide()
+	# METROID morph-ball bounce: dropping onto the ground pops back up a little, then bounces
+	# a few diminishing times before it settles.
+	if is_on_floor() and was_air and vy_impact > BALL_BOUNCE_MIN:
+		velocity.y = -minf(vy_impact * BALL_BOUNCE_FACTOR, BALL_BOUNCE_MAX)
+		main.sfx("bump")
 	# roll the ball in the travel direction
 	sprite.texture = _ball_tex
-	sprite.position = Vector2.ZERO
+	sprite.position = Vector2(0, -1)   # morph ball sits 1px higher
 	sprite.rotation += velocity.x * delta * 0.14
 	grounded = is_on_floor()
 
@@ -1333,6 +1358,16 @@ func _apply_frame(t: Texture2D, flip := false) -> void:
 	sprite.position.y = col_size.y / 2.0 - t.get_height() / 2.0
 
 func _animate() -> void:
+	# GUY character: only 3 frames — jump in the air, alternate walk1/walk2 while moving,
+	# walk1 as the standing/idle frame. Art faces RIGHT → mirror when facing left.
+	if main.selected_char == "guy" and not _guy_tex.is_empty():
+		var gk := "walk1"
+		if not grounded or grappling:
+			gk = "jump"
+		elif absf(velocity.x) > 9.0 or wall_push > 0.0:
+			gk = "walk2" if int(walk_anim) % 2 == 1 else "walk1"
+		_apply_frame(_guy_tex.get(gk, _guy_tex["walk1"]), facing < 0)
+		return
 	var pre := tier()
 	var kf := _pose_key_flip()
 	var key: String = pre + kf[0]
@@ -1438,7 +1473,7 @@ func _update_transform(delta: float) -> void:
 		var feet := global_position.y + col_size.y / 2.0
 		if transform_to_big:
 			big = true
-			_set_col(BIG)
+			_set_col(_stand_size())
 		else:
 			big = false
 			_set_col(SMALL)
@@ -1484,8 +1519,43 @@ func kill(from_pit := false) -> void:
 	if not from_pit:
 		velocity = Vector2.ZERO               # hold the death pose in place first
 		_apply_frame(main.tex["death"])       # front-facing death pose
+		_spawn_death_explosion()              # the character bursts apart on death
+		sprite.visible = false                # ...hidden, so the explosion replaces the death pose
 	# pit deaths keep their downward fall and current frame — no pop-up animation
 	main.stop_music_play_death()
+
+# a burst of debris particles at the player's position — the death "explosion"
+var _spark_tex: ImageTexture
+func _spawn_death_explosion() -> void:
+	if _spark_tex == null:
+		var img := Image.create(3, 3, false, Image.FORMAT_RGBA8)
+		img.fill(Color.WHITE)
+		_spark_tex = ImageTexture.create_from_image(img)
+	var p := CPUParticles2D.new()
+	p.texture = _spark_tex
+	p.z_index = 20
+	p.one_shot = true
+	p.explosiveness = 1.0                     # all at once = a burst, not a stream
+	p.amount = 30
+	p.lifetime = 0.7
+	p.direction = Vector2(0, -1)
+	p.spread = 180.0                          # fly out in every direction
+	p.initial_velocity_min = 70.0
+	p.initial_velocity_max = 190.0
+	p.gravity = Vector2(0, 340)
+	p.scale_amount_min = 1.0
+	p.scale_amount_max = 2.5
+	var grad := Gradient.new()
+	grad.set_color(0, Color(1.0, 1.0, 0.75, 1.0))     # bright flash
+	grad.add_point(0.5, Color(1.0, 0.55, 0.15, 1.0))  # orange
+	grad.set_color(1, Color(0.85, 0.12, 0.12, 0.0))   # fade out to red
+	p.color_ramp = grad
+	var parent := get_parent()
+	if parent:
+		parent.add_child(p)
+		p.global_position = global_position
+		p.emitting = true
+		p.finished.connect(p.queue_free)      # clean up when the burst ends
 
 func _update_dead(delta: float) -> void:
 	dead_timer += delta

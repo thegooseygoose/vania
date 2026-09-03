@@ -95,10 +95,14 @@ func _ready() -> void:
 		menu2_img = load("res://sprites/new player/MAIN2.png")
 	Main.load_saves()
 
-	# character-select previews: Mario's stand sprite, and the baked Kamen stand sprite
+	# character-select previews: Mario's stand sprite, the baked Kamen stand sprite, and GUY
 	char_preview = [load("res://sprites/player/big_stand_r.png")]
 	if ResourceLoader.exists("res://sprites/player/kamen_big_stand_r.png"):
 		char_preview.append(load("res://sprites/player/kamen_big_stand_r.png"))
+	else:
+		char_preview.append(char_preview[0])
+	if ResourceLoader.exists("res://sprites/player/guy_walk1.png"):
+		char_preview.append(load("res://sprites/player/guy_walk1.png"))
 	else:
 		char_preview.append(char_preview[0])
 
@@ -246,7 +250,7 @@ func _charselect_input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
 			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT:
-				char_sel = (char_sel + 1) % 2
+				char_sel = (char_sel + 1) % 3
 			JOY_BUTTON_START, JOY_BUTTON_A:
 				confirm = true
 			JOY_BUTTON_B:
@@ -255,14 +259,14 @@ func _charselect_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT:
-				char_sel = (char_sel + 1) % 2
+				char_sel = (char_sel + 1) % 3
 			KEY_ESCAPE:
 				_goto("mainmenu"); queue_redraw(); return
 			KEY_ENTER, KEY_KP_ENTER, KEY_P, KEY_SPACE:
 				confirm = true
 		queue_redraw()
 	if confirm:
-		Main.selected_char = "kamen" if char_sel == 1 else "mario"
+		Main.selected_char = ["mario", "kamen", "guy"][char_sel]
 		Main.debug_start_level = pending_level
 		_start_game()
 
@@ -467,10 +471,10 @@ func _draw_mainmenu() -> void:
 func _draw_charselect() -> void:
 	var w := float(VIEW_W)
 	font.draw_text(self, Vector2(0, 44), "SELECT PLAYER", 1.5, C_PURPLE, w)
-	var labels := ["MARIO", "KAMEN"]
-	var cx := [w * 0.32, w * 0.68]     # two column centres
+	var labels := ["MARIO", "KAMEN", "GUY"]
+	var cx := [w * 0.22, w * 0.5, w * 0.78]     # three column centres
 	var base_y := 150.0                # sprite feet line
-	for i in 2:
+	for i in 3:
 		var sel: bool = (i == char_sel)
 		var cxi: float = cx[i]
 		if i < char_preview.size() and char_preview[i]:

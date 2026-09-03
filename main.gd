@@ -75,20 +75,20 @@ const ATLAS_WATER := 46
 # (~4 tiles) with a soft, low-terminal descent — not Mario's snappy fast fall.
 const GRAVITY := 1400.0               # base gravity; rise (holding) and fall are scaled from it
 const MAX_FALL := 200.0               # low terminal — Samus drifts down, never plummets
-# NES-Metroid horizontal feel: single steady speed with a LIGHT, responsive momentum — a quick
-# ramp-up and a short slide (not sluggish/slidey). The Metroid character is in the floaty JUMP
-# below, not a heavy ground slide, so the ground stays crisp (no banging into blocks).
+# Metroid-ish feel with a RUN button: light responsive momentum, floaty jump. HOLD the run button
+# (keyboard Z / Shift, Xbox X) to move faster than a walk.
 const WALK_ACC := 360.0               # responsive ground ramp-up (~0.21s to top speed)
-const RUN_ACC := 360.0                # == WALK_ACC (no run/sprint — single speed)
+const RUN_ACC := 420.0                # accelerates a touch harder to reach the higher run speed
 const AIR_ACC := 300.0                # good air steering (Metroid-style air control)
-const WALK_MAX := 77.0                # THE single walk speed (~1.3 px/frame, Metroid-ish)
-const RUN_MAX := 77.0                 # == WALK_MAX → holding run/Z gives NO speed boost (single speed)
+const WALK_MAX := 77.0                # base walk speed (~1.3 px/frame, Metroid-ish)
+const RUN_MAX := 125.0                # RUN (hold Z / Xbox X): ~1.6x walk. Faster ground speed only —
+                                      # it does NOT add jump height/air-time (see _jump_speed_t)
 const FRICTION := 300.0               # a short, crisp slide to a stop — you won't slide into blocks
 const TURN_ACC := 600.0               # crisp turn when reversing (no sluggish drift)
 # NES-Metroid jump: a strong launch + soft rise/fall = a tall, floaty ~4-tile arc. Holding
 # jump floats a little higher than a tap (mild variable height, like Metroid).
-const JUMP_VELOCITY := -300.0        # single jump launch (no run-jump — see JUMP_VELOCITY_RUN)
-const JUMP_VELOCITY_RUN := -300.0    # == JUMP_VELOCITY: momentum no longer adds jump height
+const JUMP_VELOCITY := -305.0        # tuned so the full jump apex = ~4 tiles (NES Metroid height)
+const JUMP_VELOCITY_RUN := -305.0    # == JUMP_VELOCITY: momentum no longer adds jump height
 const JUMP_HOLD_GRAV := 0.5          # rising while holding = ~700 g → ~4-tile floaty apex
 # Descent gravity scale — a soft Metroid fall (a touch faster than the rise, still floaty).
 const FALL_GRAV_SCALE := 0.62        # ~870 effective fall gravity
@@ -1226,6 +1226,7 @@ func _read_spawns() -> void:
 				19, 20, 21, 22: etype = "barrel_spawner"   # Level 15 barrel emitters (19 normal, 20 fast, 21 bounce, 22 bounce-slow)
 				23: etype = "gord"                          # stationary spiky hazard (instant death; blocks barrels)
 				24: etype = "zoomer"                        # Metroid Zoomer: crawls along surfaces / around corners
+				25: etype = "serp"                          # Serp: a snail — patrols the floor VERY slowly
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1538,6 +1539,15 @@ func _spawn_enemies() -> void:
 			add_child(z)
 			z.spawn(d["pos"])
 			enemies.append(z)
+			continue
+		# Serp: a snail — a normal walking Enemy but its own kind so it crawls very slowly
+		if t == "serp":
+			var sp = Enemy.new()
+			sp.main = self
+			sp.kind = "serp"
+			add_child(sp)
+			sp.spawn(d["pos"])
+			enemies.append(sp)
 			continue
 		var e = Enemy.new()
 		e.main = self
@@ -2178,6 +2188,8 @@ func _update_gameplay_collisions() -> void:
 		if stomping:
 			if e.kind == "goomba" or e.kind == "hammerbro":
 				e.squish()          # goomba flattens; hammer bro topples and dies
+			elif e.kind == "serp":
+				e.knock_out(1 if player.global_position.x < e.global_position.x else -1)  # snail flips off and dies
 			else:
 				e.to_shell()
 			player.bounce()
@@ -4836,6 +4848,8 @@ func _load_textures() -> void:
 		"goomba_flat": "enemies/goomba_flat",
 		# Zoomer (Metroid crawler, zomb.png): 2-frame walk that hugs surfaces
 		"zoomer0": "enemies/zoomer0", "zoomer1": "enemies/zoomer1",
+		# Serp (snail, serp.png): 1 frame, crawls very slowly
+		"serp": "enemies/serp",
 		"koopa1": "enemies/koopa_walk1", "koopa2": "enemies/koopa_walk2",
 		"koopa_shell": "enemies/koopa_shell",
 		"shell_left": "enemies/shell_left", "shell_right1": "enemies/shell_right1",

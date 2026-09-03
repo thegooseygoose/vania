@@ -33,6 +33,8 @@ var zoom_next := Vector2i.ZERO  # the grid cell it is currently crawling toward
 var zoom_anim := 0.0            # 2-frame walk-cycle timer
 const ZOOM := Vector2(14, 14)   # collision box (fits a 1-tile channel)
 const ZOOM_SPEED := 42.0        # crawl speed (px/s)
+const SERP_SPD := 10.0          # Serp (snail) patrol speed — VERY slow (normal ENEMY_SPD is 34)
+const SERP_SIZE := Vector2(16, 22)  # taller box (~ the 24px sprite) so landing on it actually stomps
 
 # shell timers
 var shell_timer := 0.0         # how long the shell has sat still
@@ -95,10 +97,10 @@ func spawn(feet_pos: Vector2) -> void:
 		zoom_next = pc
 		global_position = _zoom_center(pc)
 		return
-	rect.size = KOOPA if kind == "koopa" else GOOMBA
+	rect.size = SERP_SIZE if kind == "serp" else (KOOPA if kind == "koopa" else GOOMBA)
 	dir = -1
 	global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)
-	velocity = Vector2(dir * main.ENEMY_SPD, 0)
+	velocity = Vector2(dir * (SERP_SPD if kind == "serp" else main.ENEMY_SPD), 0)
 
 
 func _physics_process(delta: float) -> void:
@@ -141,7 +143,9 @@ func _physics_process(delta: float) -> void:
 	if shell and not shell_moving:
 		velocity.x = 0.0
 	else:
-		if spd == 0.0:
+		if kind == "serp":
+			spd = SERP_SPD                 # snail crawl — force the very-slow speed every frame
+		elif spd == 0.0:
 			spd = 200.0 if shell_moving else main.ENEMY_SPD
 		velocity.x = dir * spd
 
@@ -264,6 +268,9 @@ func _exit_shell() -> void:
 func _animate() -> void:
 	var t := int(Time.get_ticks_msec())
 	sprite.flip_v = belly_up        # block-bumped shells render upside-down
+	if kind == "serp":
+		_frame(_t("serp"), dir < 0)   # 1-frame snail; art faces RIGHT, mirror when crawling left
+		return
 	if kind == "goomba":
 		if squished:
 			_frame(_t("goomba_flat"), false)
