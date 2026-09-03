@@ -196,6 +196,12 @@ const WIN_FLIP_HOLD := 30 # how many frames Mario pauses on the far side before 
 func _ready() -> void:
 	collision_layer = 2
 	collision_mask = 1
+	# Keep him planted on the floor: without this the rounded capsule leaves the floor for a
+	# frame at every tile seam (default floor_snap_length is only 1px), which reads as clunky
+	# micro-hopping when you run a flat corridor. Snapping down a few px glides him over seams.
+	floor_snap_length = 6.0
+	floor_constant_speed = true          # steady ground speed over seams/small steps
+	floor_stop_on_slope = true
 	_caps = CapsuleShape2D.new()
 	shape = CollisionShape2D.new()
 	shape.shape = _caps
@@ -801,6 +807,8 @@ func _update_alive(delta: float) -> void:
 	# which made him "moon-walk" on a ledge edge. A block under his feet no longer counts.
 	if dir != 0.0 and _wall_ahead(dir):
 		wall_push = 0.12
+		if on_floor:
+			velocity.x = 0.0     # pinned against a wall on the ground — stop clean, no velocity buzz/jitter
 	else:
 		wall_push = maxf(0.0, wall_push - delta)
 

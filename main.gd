@@ -75,15 +75,16 @@ const ATLAS_WATER := 46
 # (~4 tiles) with a soft, low-terminal descent — not Mario's snappy fast fall.
 const GRAVITY := 1400.0               # base gravity; rise (holding) and fall are scaled from it
 const MAX_FALL := 200.0               # low terminal — Samus drifts down, never plummets
-# Metroid horizontal feel: reaches its single top speed fairly quickly with a little slide.
-const WALK_ACC := 360.0               # ground acceleration when just walking
-const RUN_ACC := 460.0                # sprint accelerates a touch harder to reach RUN_MAX quickly
-const AIR_ACC := 300.0                # air steering
-const WALK_MAX := 77.0                # base walk speed (~1.3 px/frame, Metroid-ish)
-const RUN_MAX := 125.0                # SPRINT (hold Z): ~1.6x walk. Faster ground speed only —
-                                      # it does NOT add jump height/air-time (see _jump_speed_t)
-const FRICTION := 300.0               # ground friction — a short slide to a stop
-const TURN_ACC := 600.0              # skid deceleration when reversing (crisp turn)
+# NES-Metroid horizontal feel: single steady speed with a LIGHT, responsive momentum — a quick
+# ramp-up and a short slide (not sluggish/slidey). The Metroid character is in the floaty JUMP
+# below, not a heavy ground slide, so the ground stays crisp (no banging into blocks).
+const WALK_ACC := 360.0               # responsive ground ramp-up (~0.21s to top speed)
+const RUN_ACC := 360.0                # == WALK_ACC (no run/sprint — single speed)
+const AIR_ACC := 300.0                # good air steering (Metroid-style air control)
+const WALK_MAX := 77.0                # THE single walk speed (~1.3 px/frame, Metroid-ish)
+const RUN_MAX := 77.0                 # == WALK_MAX → holding run/Z gives NO speed boost (single speed)
+const FRICTION := 300.0               # a short, crisp slide to a stop — you won't slide into blocks
+const TURN_ACC := 600.0               # crisp turn when reversing (no sluggish drift)
 # NES-Metroid jump: a strong launch + soft rise/fall = a tall, floaty ~4-tile arc. Holding
 # jump floats a little higher than a tap (mild variable height, like Metroid).
 const JUMP_VELOCITY := -300.0        # single jump launch (no run-jump — see JUMP_VELOCITY_RUN)
