@@ -28,6 +28,7 @@ texture = ExtResource("1_nqsmv")
 21:0/0 = 0
 22:0/0 = 0
 23:0/0 = 0
+24:0/0 = 0
 
 [resource]
 sources/0 = SubResource("TileSetAtlasSource_hwif2")

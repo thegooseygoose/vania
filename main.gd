@@ -76,11 +76,12 @@ const ATLAS_WATER := 46
 const GRAVITY := 1400.0               # base gravity; rise (holding) and fall are scaled from it
 const MAX_FALL := 200.0               # low terminal — Samus drifts down, never plummets
 # Metroid horizontal feel: reaches its single top speed fairly quickly with a little slide.
-const WALK_ACC := 360.0               # ground acceleration (same whether or not run is held)
-const RUN_ACC := 360.0                # == WALK_ACC so the run button doesn't accelerate faster
+const WALK_ACC := 360.0               # ground acceleration when just walking
+const RUN_ACC := 460.0                # sprint accelerates a touch harder to reach RUN_MAX quickly
 const AIR_ACC := 300.0                # air steering
-const WALK_MAX := 77.0                # THE single move speed (~1.3 px/frame, Metroid-ish)
-const RUN_MAX := 77.0                 # == WALK_MAX → holding run/X gives NO speed boost
+const WALK_MAX := 77.0                # base walk speed (~1.3 px/frame, Metroid-ish)
+const RUN_MAX := 125.0                # SPRINT (hold Z): ~1.6x walk. Faster ground speed only —
+                                      # it does NOT add jump height/air-time (see _jump_speed_t)
 const FRICTION := 300.0               # ground friction — a short slide to a stop
 const TURN_ACC := 600.0              # skid deceleration when reversing (crisp turn)
 # NES-Metroid jump: a strong launch + soft rise/fall = a tall, floaty ~4-tile arc. Holding
@@ -114,6 +115,7 @@ const LEVEL8_SCENE := preload("res://Level8.tscn")  # 1-8 (LEVEL E: rider-kick s
 const LEVEL9_SCENE := preload("res://Level9.tscn")  # 1-9 (LEVEL F: overclock/time-slow showcase)
 const LEVEL10_SCENE := preload("res://Level10.tscn")  # 1-10 (LEVEL G: hover-jets showcase)
 const LEVEL11_SCENE := preload("res://Level11.tscn")  # 1-11 (LEVEL H: all-new-powers test/showcase)
+const LEVEL28_SCENE := preload("res://Level28.tscn")  # LEVEL Z: blank sandbox (40-tile floor) to build a new level
 const SOURCE_ID := 0
 
 # =========================================================================
@@ -135,6 +137,7 @@ const LEVEL_ORDER := [
 	[25, "1-9"],  # LEVEL F: overclock / time-slow showcase
 	[26, "1-10"], # LEVEL G: hover-jets showcase
 	[27, "1-11"], # LEVEL H: all-new-powers test/showcase
+	[28, "Z"],    # LEVEL Z: blank sandbox to build a new level
 ]
 # per-FILE geometry (intrinsic to each level's layout, keyed by scene file #):
 #   lw = width in tiles, flag/castle = flagpole & castle columns, dark = black bg,
@@ -151,6 +154,7 @@ const LEVEL_GEOMETRY := {
 	25: {"lw": 80, "flag": 74, "castle": 76, "dark": false, "under": false, "noflag": true},   # Vania 1-9 LEVEL F time-slow showcase
 	26: {"lw": 80, "flag": 74, "castle": 76, "dark": false, "under": false, "noflag": true},   # Vania 1-10 LEVEL G hover showcase
 	27: {"lw": 96, "flag": 90, "castle": 92, "dark": false, "under": false, "noflag": true},   # Vania 1-11 LEVEL H all-new-powers test
+	28: {"lw": 40, "flag": 34, "castle": 36, "dark": false, "under": false, "noflag": true},   # LEVEL Z: blank sandbox (40-tile floor)
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
 	6: {"lw": 200, "flag": 192, "castle": 195, "dark": false, "under": false},
@@ -250,7 +254,7 @@ var timing := true             # false once the flagpole is touched (freezes ela
 var game_state := "play"        # play | clear
 var saved_tier := "big"         # Vania: Mario STARTS as big/mushroom Mario (not small, not fire)
 var level_num := 1              # 1 = world 1-1, 2 = world 1-2
-const LEVEL_COUNT := 11         # 1-1 … 1-11
+const LEVEL_COUNT := 12         # 1-1 … 1-11, then LEVEL Z
 static var debug_start_level := 1   # DEBUG: level the intro's stage-select boots into
 static var selected_char := "mario"  # character picked at the intro: "mario" or "kamen" (mask on Mario)
 
@@ -757,7 +761,7 @@ const FILTER_NAMES := ["REGULAR", "CRT", "INVERTED"]
 var filter_layer: CanvasLayer
 var filter_rect: ColorRect
 
-const MUSIC_VOL := 0.75    # song level
+const MUSIC_VOL := 0.5625  # song level (turned down 25% from 0.75)
 const SFX_VOL := 0.6
 const MUSIC_PITCH := 0.75  # 25% slower than natural speed
 
@@ -979,6 +983,8 @@ func _physics_process(delta: float) -> void:
 # LEVEL SCENE (Level1.tscn — TileMapLayer terrain + Spawns markers)
 # =========================================================================
 func _scene_for_file(f: int) -> PackedScene:
+	if f == 28:
+		return LEVEL28_SCENE
 	if f == 27:
 		return LEVEL11_SCENE
 	if f == 26:
@@ -1218,6 +1224,7 @@ func _read_spawns() -> void:
 				16: etype = "piranha"   # UPSIDE-DOWN piranha (hangs from a ceiling pipe)
 				19, 20, 21, 22: etype = "barrel_spawner"   # Level 15 barrel emitters (19 normal, 20 fast, 21 bounce, 22 bounce-slow)
 				23: etype = "gord"                          # stationary spiky hazard (instant death; blocks barrels)
+				24: etype = "zoomer"                        # Metroid Zoomer: crawls along surfaces / around corners
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1521,6 +1528,15 @@ func _spawn_enemies() -> void:
 			add_child(bw)
 			bw.spawn(d["pos"])
 			bowsers.append(bw)
+			continue
+		# Zoomer: a surface-crawling Enemy (Metroid). Own kind so it doesn't get goomba AI.
+		if t == "zoomer":
+			var z = Enemy.new()
+			z.main = self
+			z.kind = "zoomer"
+			add_child(z)
+			z.spawn(d["pos"])
+			enemies.append(z)
 			continue
 		var e = Enemy.new()
 		e.main = self
@@ -2131,6 +2147,9 @@ func _update_gameplay_collisions() -> void:
 		if e.kind == "piranha":
 			player.hurt()          # piranha plant can't be stomped — any touch hurts
 			continue
+		if e.kind == "zoomer":
+			player.hurt()          # Zoomer: any touch hurts (stomping it does NOT kill) — only the boomerang kills it
+			continue
 		if e.kind == "koopa" and e.shell and not e.shell_moving:
 			# a still shell gets kicked away from you on any touch — but not during the
 			# brief grace after it was made/stopped (that would re-trigger on one overlap)
@@ -2580,11 +2599,12 @@ func _update_camera() -> void:
 	cam_y = lerp(cam_y, target_y, clampf(CAM_SMOOTH * get_physics_process_delta_time(), 0.0, 1.0))
 	if _cam_locked:
 		cam_x = minf(cam_x, _cam_lock_x)
-	# Snap the camera to whole pixels so static tiles rasterize identically each frame.
+	# Sub-pixel camera (canvas_items stretch renders at window res) → smooth panning, no
+	# whole-low-res-pixel judder. Pixels stay crisp because the window is an exact 4x of 256x240.
 	var shake := Vector2.ZERO
 	if _cam_shake > 0.05:
 		shake = Vector2(randf_range(-_cam_shake, _cam_shake), randf_range(-_cam_shake, _cam_shake))
-	camera.position = Vector2(roundf(cam_x) + VIEW_W / 2.0 + shake.x, roundf(cam_y) + VIEW_H / 2.0 + shake.y)
+	camera.position = Vector2(cam_x + VIEW_W / 2.0 + shake.x, cam_y + VIEW_H / 2.0 + shake.y)
 	# invisible right wall at the axe: full-height, so you can't jump past it — you're
 	# stopped and drop back down onto the axe (which triggers the ending on contact)
 	if not _axe_cells.is_empty() and not axe_ending:
@@ -4557,7 +4577,9 @@ func _setup_audio() -> void:
 	# and produce total silence.
 	_load_settings()
 	_init_audio_buses()
-	overworld_music = load("res://audio/newsong.mp3")
+	overworld_music = load("res://audio/vania/level_theme.mp3")   # Metroid Prime 2 remix — level theme
+	if overworld_music is AudioStreamMP3:
+		overworld_music.loop = true                               # seamless level-theme loop
 	# beat.wav is the intro-cutscene song; guarded so a missing/not-yet-imported file just
 	# falls back to the overworld theme instead of erroring at boot
 	var beat_path := "res://audio/mario sound/extra/beat.wav"
@@ -4744,8 +4766,8 @@ func sfx(name: String) -> AudioStreamPlayer:
 		return null
 	var path := ""
 	match name:
-		"jump_small": path = "res://audio/mario sound/jump small.mp3"
-		"jump_big": path = "res://audio/mario sound/jump big.wav"
+		"jump_small": path = "res://audio/vania/jump sound.wav"   # user's custom jump sound
+		"jump_big": path = "res://audio/vania/jump sound.wav"     # same sound for big/fire jumps
 		"stomp": path = "res://audio/mario sound/stromp.wav"
 		"powerup": path = "res://audio/mario sound/power up collect.wav"
 		"powerup_appear": path = "res://audio/mario sound/power up apear.wav"
@@ -4811,6 +4833,8 @@ func _load_textures() -> void:
 		"fireball_l": "player/fireball_l", "fireball_r": "player/fireball_r",
 		"goomba1": "enemies/goomba_walk1", "goomba2": "enemies/goomba_walk2",
 		"goomba_flat": "enemies/goomba_flat",
+		# Zoomer (Metroid crawler, zomb.png): 2-frame walk that hugs surfaces
+		"zoomer0": "enemies/zoomer0", "zoomer1": "enemies/zoomer1",
 		"koopa1": "enemies/koopa_walk1", "koopa2": "enemies/koopa_walk2",
 		"koopa_shell": "enemies/koopa_shell",
 		"shell_left": "enemies/shell_left", "shell_right1": "enemies/shell_right1",

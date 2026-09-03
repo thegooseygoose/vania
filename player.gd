@@ -167,6 +167,10 @@ const GROW_FRAME := ["grow1", "grow4", "grow2"]     # 0 small, 1 big, 2 intermed
 const SHRINK_FRAME := ["shrink4", "shrink1"]        # 0 small (D), 1 big (A)
 
 var invuln := 0.0
+var hurt_lock := 0.0             # brief control lock after a hit so the knockback shove reads
+const HURT_KNOCK_X := 150.0      # horizontal knockback (shoved opposite to facing)
+const HURT_KNOCK_UP := -200.0    # upward pop on a hit
+const HURT_LOCK_TIME := 0.3      # seconds movement input is ignored after a hit
 const MAX_HEARTS := 5
 var hearts := MAX_HEARTS         # health: each hit costs one; death at 0. Reset to full on spawn.
 var jump_held := false
@@ -242,14 +246,23 @@ func _ready() -> void:
 	_claw_dir_l = [Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
 
 
-# the morph-ball sprite = the user's "actual ball" art (ball.png, 16x16 at 18,38)
+# the morph-ball sprite = the user's ball2.png art. The ball occupies this box in
+# ball2.png (getbbox = (13,31)-(33,55), 20x24) — RE-DETECT if the user re-saves it.
+# Fit it into a centered 16x16 (preserving aspect) so it rolls cleanly about its center.
 func _make_ball_tex() -> ImageTexture:
-	var sheet: Image = (load("res://sprites/v sprites/ball.png") as Texture2D).get_image()
+	var sheet: Image = (load("res://sprites/v sprites/ball2.png") as Texture2D).get_image()
 	if sheet.is_compressed():
 		sheet.decompress()
 	sheet.convert(Image.FORMAT_RGBA8)
+	var src := Rect2i(13, 31, 20, 24)
+	var crop := Image.create(src.size.x, src.size.y, false, Image.FORMAT_RGBA8)
+	crop.blit_rect(sheet, src, Vector2i.ZERO)
+	var s: float = 16.0 / float(maxi(src.size.x, src.size.y))
+	var sw: int = int(round(src.size.x * s))
+	var sh: int = int(round(src.size.y * s))
+	crop.resize(sw, sh, Image.INTERPOLATE_LANCZOS)
 	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
-	img.blit_rect(sheet, Rect2i(18, 38, 16, 16), Vector2i(0, 0))
+	img.blit_rect(crop, Rect2i(0, 0, sw, sh), Vector2i((16 - sw) / 2, (16 - sh) / 2))
 	return ImageTexture.create_from_image(img)
 
 
@@ -351,9 +364,11 @@ func spawn(feet_pos: Vector2) -> void:
 	dash_cd = 0.0
 	morphed = false
 	air_was_submerged = false
+	hurt_lock = 0.0                     # no leftover knockback lock into a fresh life
 	if sprite:
 		sprite.modulate = Color.WHITE   # clear any leftover underwater tint
 		sprite.rotation = 0.0           # clear any leftover morph-ball roll (reset while rolling)
+		sprite.visible = true           # clear any leftover invuln-flash blink
 	_water_split = false                # no split-tint until the next in-water frame
 	hearts = MAX_HEARTS                 # full health at the start of every life
 	set_collision_mask_value(1, true)   # kill() clears this to fall through the world;
@@ -564,6 +579,8 @@ func _update_alive(delta: float) -> void:
 
 	if wall_lock > 0.0:
 		wall_lock = maxf(0.0, wall_lock - delta)
+	if hurt_lock > 0.0:
+		hurt_lock = maxf(0.0, hurt_lock - delta)
 
 	var running := Input.is_action_pressed("run")
 	var max_s: float = main.RUN_MAX if running else main.WALK_MAX
@@ -604,7 +621,7 @@ func _update_alive(delta: float) -> void:
 	ducking = want_duck
 
 	var dir := 0.0
-	if not ducking and wall_lock <= 0.0:   # hold the wall-jump shove during the lock
+	if not ducking and wall_lock <= 0.0 and hurt_lock <= 0.0:   # hold the wall-jump / knockback shove during the lock
 		if Input.is_action_pressed("move_left"):
 			dir = -1.0
 			facing = -1
@@ -808,6 +825,8 @@ func _update_alive(delta: float) -> void:
 		walk_anim = 0.0
 
 	_animate()
+	# invulnerability flash: blink the sprite on/off (~10 Hz) for the duration of invuln
+	sprite.visible = invuln <= 0.0 or (int(invuln * 20.0) % 2 == 1)
 
 	# reached the flagpole? (the pole tiles are solid, so the body stops a hair
 	# short of the exact column — trigger a few px early so it always fires).
@@ -832,11 +851,11 @@ func _update_alive(delta: float) -> void:
 # 0 at walking pace → 1 at full run, from ACTUAL horizontal speed (momentum), NOT the
 # run button — so standing still while holding run gives no jump boost.
 func _jump_speed_t() -> float:
-	var wm: float = main.WALK_MAX
-	var rm: float = main.RUN_MAX
-	if rm <= wm:
-		return 0.0            # NES-Metroid: single speed, so no momentum-based jump boost
-	return clampf((absf(velocity.x) - wm) / (rm - wm), 0.0, 1.0)
+	# Sprinting (Z) gives faster GROUND speed but NO extra jump momentum — the launch
+	# velocity and jump gravity stay at the walk baseline regardless of how fast you're
+	# moving. (Your horizontal velocity still carries into the air on its own; this only
+	# removes the SMB-style bonus jump height/air-time.)
+	return 0.0
 
 
 # Jump gravity multiplier from horizontal speed (1.0 at walk → main.JUMP_RUN_GRAV_SCALE at
@@ -904,11 +923,14 @@ func _dash_physics(delta: float) -> void:
 	var bot := int(floor((global_position.y + col_size.y / 2.0 - 2.0) / main.TILE))
 	for row in range(top, bot + 1):
 		main.smash_tile(col, row)
-	# knock out any enemy we plough through
+	# blast any enemy we plough through — dash_kill = the flashy spinning cyan vaporize
 	for e in main.enemies:
-		if is_instance_valid(e) and not e.dead and e.has_method("knock_out") \
+		if is_instance_valid(e) and not e.dead \
 				and global_position.distance_to(e.global_position) < 16.0:
-			e.knock_out(facing)
+			if e.has_method("dash_kill"):
+				e.dash_kill(facing)
+			elif e.has_method("knock_out"):
+				e.knock_out(facing)
 			main.sfx("kick")
 	move_and_slide()
 	_animate()
@@ -1419,8 +1441,8 @@ func _update_transform(delta: float) -> void:
 		_animate()
 
 func hurt() -> void:
-	if invuln > 0.0 or dead or transforming:
-		return
+	if invuln > 0.0 or dead or transforming or dashing:
+		return  # dashing = invulnerable (you plough through enemies, they die, you don't)
 	# 5-heart health: every hit costs one heart; at 0 you die. (Fire power is kept until death.)
 	hearts -= 1
 	if hearts <= 0:
@@ -1428,6 +1450,11 @@ func hurt() -> void:
 		kill()
 		return
 	invuln = 1.5
+	# knockback: shoved back the way he's facing with an upward pop; hurt_lock briefly
+	# ignores movement input so the shove carries (see the movement input gate).
+	velocity.x = -float(facing) * HURT_KNOCK_X
+	velocity.y = HURT_KNOCK_UP
+	hurt_lock = HURT_LOCK_TIME
 	main.sfx("powerdown")
 
 func bounce() -> void:

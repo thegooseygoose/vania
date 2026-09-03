@@ -21,7 +21,7 @@ tile_map_data = PackedByteArray("AAApAAoAAAA0AAAAAACUAAEAAAAwAAAAAAABAAwAAAAzAAA
 tile_set = ExtResource("3_lhhoo")
 
 [node name="EnemyTiles" type="TileMapLayer" parent="." unique_id=401232155]
-visible = false
+tile_map_data = PackedByteArray("AAA7AAwAAAAYAAAAAAA1AAEAAAAYAAAAAAAcAAwAAAAYAAAAAABaAAwAAAAYAAAAAAAcAAEAAAAYAAAAAAA=")
 tile_set = ExtResource("4_ufpxx")
 
 [node name="CoinTiles" type="TileMapLayer" parent="." unique_id=1199718139]

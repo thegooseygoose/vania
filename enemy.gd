@@ -23,6 +23,16 @@ var shell := false
 var shell_moving := false
 var dead_timer := 0.0
 var remove_me := false
+var dash_killed := false        # killed by the DASH: spinning cyan launch that vaporizes (see dash_kill)
+var _dash_spin := 0.0           # tumble speed (rad/s) for a dash-killed enemy
+
+# Zoomer (Metroid crawler, kind == "zoomer"): hugs surfaces and wraps around every corner.
+var zoom_dir := Vector2i(1, 0)  # travel direction along the surface (grid step)
+var zoom_hand := 1              # +1 = surface kept on the clockwise side of travel, -1 = ccw
+var zoom_next := Vector2i.ZERO  # the grid cell it is currently crawling toward
+var zoom_anim := 0.0            # 2-frame walk-cycle timer
+const ZOOM := Vector2(14, 14)   # collision box (fits a 1-tile channel)
+const ZOOM_SPEED := 42.0        # crawl speed (px/s)
 
 # shell timers
 var shell_timer := 0.0         # how long the shell has sat still
@@ -69,6 +79,22 @@ func get_rect() -> Rect2:
 
 
 func spawn(feet_pos: Vector2) -> void:
+	if kind == "zoomer":
+		rect.size = ZOOM
+		# the painted (empty) cell whose bottom edge is feet_pos
+		var pc := Vector2i(int(floor(feet_pos.x / main.TILE)), int(floor((feet_pos.y - 1.0) / main.TILE)))
+		zoom_hand = 1
+		# cling to whichever side has a block: prefer floor, then CEILING, then walls.
+		# Paint the zoomer on the empty cell that touches the surface you want it on.
+		var w := Vector2i(0, 1)
+		for cand in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+			if _zoom_solid(pc + cand):
+				w = cand
+				break
+		zoom_dir = Vector2i(w.y, -w.x)     # travel along that surface (hand +1)
+		zoom_next = pc
+		global_position = _zoom_center(pc)
+		return
 	rect.size = KOOPA if kind == "koopa" else GOOMBA
 	dir = -1
 	global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)
@@ -92,8 +118,22 @@ func _physics_process(delta: float) -> void:
 			# the constant horizontal carries it diagonally off the screen
 			velocity.y = minf(velocity.y + main.GRAVITY * 0.4 * delta, main.MAX_FALL)
 			global_position += velocity * delta
+		if dash_killed:
+			# DASH KILL: blasted off spinning, wrapped in a bright cyan energy glow,
+			# then vaporizes (fades to nothing) — reads very differently from a normal kill.
+			sprite.rotation += _dash_spin * delta
+			var f: float = clampf((0.9 - dead_timer) / 0.4, 0.0, 1.0)   # solid, then fade over the last 0.4s
+			sprite.modulate = Color(0.6, 1.7, 2.3, f)
+			if dead_timer > 0.9:
+				remove_me = true
+			return
 		if dead_timer > (0.5 if squished else 4.0):
 			remove_me = true
+		return
+
+	# Zoomer: crawl along the surface (its own movement, no gravity/patrol)
+	if kind == "zoomer":
+		_zoomer_move(delta)
 		return
 
 	# horizontal patrol
@@ -269,6 +309,8 @@ func _frame(tx: Texture2D, flip: bool) -> void:
 # stomp / kick results (called from Main)
 # =========================================================================
 func squish() -> void:
+	if kind == "zoomer":
+		return          # a zoomer can't be flattened — only the boomerang kills it
 	squished = true
 	dead = true
 	dead_timer = 0.0
@@ -307,6 +349,17 @@ func flip_stun() -> void:
 	velocity.y = -120.0      # small hop so the flip reads as being knocked up
 
 func knock_out(hit_dir := 1) -> void:
+	# Zoomers shrug off every generic kill (stomp/dash/rider-kick/fireball/sliding shell all
+	# route through knock_out) — ONLY the boomerang kills them (see boomerang_kill).
+	if kind == "zoomer":
+		return
+	_do_knock_out(hit_dir)
+
+# The boomerang's kill — the one thing that takes a zoomer down (works on any enemy).
+func boomerang_kill(hit_dir := 1) -> void:
+	_do_knock_out(hit_dir)
+
+func _do_knock_out(hit_dir := 1) -> void:
 	dead = true
 	squished = false
 	dead_timer = 0.0
@@ -318,3 +371,76 @@ func knock_out(hit_dir := 1) -> void:
 	if kind == "koopa":
 		_frame(_t("koopa_shell"), false)
 	sprite.flip_v = true
+	sprite.rotation = 0.0        # a dying zoomer drops its surface-hugging tilt so the flip reads right
+
+# =========================================================================
+# Zoomer movement — a boundary (wall) follower: it keeps the surface on one
+# side and walks the outline of the solid terrain, wrapping cleanly around
+# both convex and concave corners (Metroid's Zoomer / Geemer).
+# =========================================================================
+func _zoom_cell() -> Vector2i:
+	return Vector2i(int(floor(global_position.x / main.TILE)), int(floor(global_position.y / main.TILE)))
+
+func _zoom_center(c: Vector2i) -> Vector2:
+	return Vector2(c.x * main.TILE + main.TILE / 2.0, c.y * main.TILE + main.TILE / 2.0)
+
+# rotate a grid step 90° in the hug handedness (+1 = clockwise on screen, y-down)
+func _zoom_rot(v: Vector2i) -> Vector2i:
+	return Vector2i(-v.y, v.x) if zoom_hand >= 0 else Vector2i(v.y, -v.x)
+
+func _zoom_solid(c: Vector2i) -> bool:
+	var src: int = main.terrain.get_cell_source_id(c)
+	if src < 0:
+		return false
+	var ax: int = main.terrain.get_cell_atlas_coords(c).x
+	# don't cling to water / lava / hook / painted-special tiles — only real terrain
+	if ax >= main.ATLAS_WATER_TOP:                       # 45+ = water, hook, powerups, goal
+		return false
+	if ax == main.ATLAS_LAVA or ax == main.ATLAS_LAVA_TOP:
+		return false
+	return true
+
+# reached zoom_next: pick the next cell, wrapping around corners so the surface
+# stays on the hug side (zoom_dir rotated by handedness).
+func _zoom_advance() -> void:
+	var cell := zoom_next
+	var wall := _zoom_rot(zoom_dir)          # the side the surface is on
+	if not _zoom_solid(cell + wall):
+		zoom_dir = wall                       # convex corner: curl toward the surface
+	elif _zoom_solid(cell + zoom_dir):
+		zoom_dir = -_zoom_rot(zoom_dir)       # concave corner: turn away from the surface
+	zoom_next = cell + zoom_dir
+
+func _zoomer_move(delta: float) -> void:
+	zoom_anim += delta
+	var target := _zoom_center(zoom_next)
+	var to := target - global_position
+	var step := ZOOM_SPEED * delta
+	if to.length() <= step:
+		global_position = target
+		_zoom_advance()                       # arrived: choose the next cell
+	else:
+		global_position += to.normalized() * step
+	# animate: alternate the two frames, and tilt so "up" points away from the surface
+	sprite.flip_v = false
+	sprite.flip_h = false
+	sprite.position = Vector2.ZERO
+	sprite.texture = main.tex["zoomer1"] if int(zoom_anim * 8.0) % 2 == 1 else main.tex["zoomer0"]
+	var up := -Vector2(_zoom_rot(zoom_dir))   # away from the surface
+	sprite.rotation = up.angle() + PI / 2.0
+
+# DASH KILL: a flashier death than knock_out — the enemy is rocketed away hard and
+# tumbling, glowing cyan, and then vaporizes. The spin/glow/fade run in the dead branch
+# of _physics_process (gated on dash_killed).
+func dash_kill(hit_dir := 1) -> void:
+	if kind == "zoomer":
+		return          # the dash can't kill a zoomer — only the boomerang can
+	dead = true
+	dash_killed = true
+	squished = false
+	dead_timer = 0.0
+	collision_mask = 0
+	# a hard, high launch in the dash direction (normal knock_out is only 110,-180)
+	velocity = Vector2(hit_dir * 330.0, -250.0)
+	_dash_spin = hit_dir * 22.0          # fast tumble
+	sprite.modulate = Color(0.6, 1.7, 2.3)   # bright cyan energy glow

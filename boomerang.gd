@@ -71,10 +71,14 @@ func _physics_process(delta: float) -> void:
 		global_position += to.normalized() * SPEED * delta
 	# knock out enemies it passes through
 	for e in main.enemies:
-		if is_instance_valid(e) and e.has_method("knock_out") and not e.dead:
-			if global_position.distance_to(e.global_position) < 14.0:
+		if is_instance_valid(e) and not e.dead \
+				and global_position.distance_to(e.global_position) < 14.0:
+			# boomerang_kill also takes down zoomers (which shrug off knock_out)
+			if e.has_method("boomerang_kill"):
+				e.boomerang_kill(dir)
+			elif e.has_method("knock_out"):
 				e.knock_out(dir)
-				main.sfx("kick")
+			main.sfx("kick")
 	# hit door switches (only the boomerang can trigger these)
 	for s in main.door_switches:
 		if is_instance_valid(s) and not s.triggered and global_position.distance_to(s.global_position) < 12.0:

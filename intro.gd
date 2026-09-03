@@ -36,7 +36,7 @@ var menu2_img: Texture2D       # main2.png — the UNLOCKED version (LEVEL SELEC
 var menu_rect: Rect2
 var menu_sel := 0             # 0 = START GAME, 1 = LEVEL RECORDS, 2 = LEVEL SELECT
 var mm_sel := 0             # Vania main menu selection: 0=LEVEL A … 7=LEVEL H
-const MENU_SLOTS := [1, 2, 5, 7, 8, 9, 10, 11]   # A..H -> play-slots (1-1,1-2,1-5,dash,rider-kick,time-slow,hover,all-new)
+const MENU_SLOTS := [1, 2, 5, 7, 8, 9, 10, 11, 12]   # A..H + Z -> play-slots (1-1,1-2,1-5,dash,rider-kick,time-slow,hover,all-new,Z-sandbox)
 var char_sel := 0          # character-select: 0=MARIO, 1=KAMEN
 var pending_level := 1     # the level chosen on the menu, launched after character select
 var char_preview := []     # [Mario stand tex, Kamen (masked) stand tex]
@@ -207,14 +207,14 @@ func _mainmenu_input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
 			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN:
-				mm_sel = (mm_sel + 1) % 8
+				mm_sel = (mm_sel + 1) % 9
 			JOY_BUTTON_START, JOY_BUTTON_A:
 				confirm = true
 		queue_redraw()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_UP, KEY_DOWN:
-				mm_sel = (mm_sel + 1) % 8
+				mm_sel = (mm_sel + 1) % 9
 			KEY_A, KEY_1:
 				mm_sel = 0; confirm = true
 			KEY_B, KEY_2:
@@ -231,6 +231,8 @@ func _mainmenu_input(event: InputEvent) -> void:
 				mm_sel = 6; confirm = true
 			KEY_H, KEY_8:
 				mm_sel = 7; confirm = true
+			KEY_Z, KEY_9:
+				mm_sel = 8; confirm = true
 			KEY_ENTER, KEY_KP_ENTER, KEY_P, KEY_SPACE:
 				confirm = true
 		queue_redraw()
@@ -451,9 +453,9 @@ func _draw() -> void:
 func _draw_mainmenu() -> void:
 	var w := float(VIEW_W)
 	font.draw_text(self, Vector2(0, 54), "VANIA", 3.0, C_PURPLE, w)
-	var opts := ["LEVEL A", "LEVEL B", "LEVEL C", "LEVEL D", "LEVEL E", "LEVEL F", "LEVEL G", "LEVEL H"]
+	var opts := ["LEVEL A", "LEVEL B", "LEVEL C", "LEVEL D", "LEVEL E", "LEVEL F", "LEVEL G", "LEVEL H", "LEVEL Z"]
 	for i in opts.size():
-		var y := 88.0 + i * 16.0
+		var y := 82.0 + i * 15.0
 		var sel: bool = (i == mm_sel)
 		if sel:
 			_file_box(Rect2(72.0, y - 11.0, VIEW_W - 144.0, 15.0), C_PROMPT)
