@@ -105,6 +105,10 @@ func _ready() -> void:
 		char_preview.append(load("res://sprites/player/guy_walk1.png"))
 	else:
 		char_preview.append(char_preview[0])
+	if ResourceLoader.exists("res://sprites/player/grass_walk1.png"):
+		char_preview.append(load("res://sprites/player/grass_walk1.png"))
+	else:
+		char_preview.append(char_preview[0])
 
 	music = AudioStreamPlayer.new()
 	music.stream = load("res://intro/apog.mp3")
@@ -250,7 +254,7 @@ func _charselect_input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
 			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT:
-				char_sel = (char_sel + 1) % 3
+				char_sel = (char_sel + 1) % 4
 			JOY_BUTTON_START, JOY_BUTTON_A:
 				confirm = true
 			JOY_BUTTON_B:
@@ -259,14 +263,14 @@ func _charselect_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT:
-				char_sel = (char_sel + 1) % 3
+				char_sel = (char_sel + 1) % 4
 			KEY_ESCAPE:
 				_goto("mainmenu"); queue_redraw(); return
 			KEY_ENTER, KEY_KP_ENTER, KEY_P, KEY_SPACE:
 				confirm = true
 		queue_redraw()
 	if confirm:
-		Main.selected_char = ["mario", "kamen", "guy"][char_sel]
+		Main.selected_char = ["mario", "kamen", "guy", "grass"][char_sel]
 		Main.debug_start_level = pending_level
 		_start_game()
 
@@ -471,15 +475,15 @@ func _draw_mainmenu() -> void:
 func _draw_charselect() -> void:
 	var w := float(VIEW_W)
 	font.draw_text(self, Vector2(0, 44), "SELECT PLAYER", 1.5, C_PURPLE, w)
-	var labels := ["MARIO", "KAMEN", "GUY"]
-	var cx := [w * 0.22, w * 0.5, w * 0.78]     # three column centres
+	var labels := ["MARIO", "KAMEN", "GUY", "GRASS"]
+	var cx := [w * 0.16, w * 0.385, w * 0.615, w * 0.84]   # four column centres
 	var base_y := 150.0                # sprite feet line
-	for i in 3:
+	for i in 4:
 		var sel: bool = (i == char_sel)
 		var cxi: float = cx[i]
 		if i < char_preview.size() and char_preview[i]:
 			var tx: Texture2D = char_preview[i]
-			var sc := 3.0
+			var sc := 2.5
 			var sw: float = tx.get_width() * sc
 			var sh: float = tx.get_height() * sc
 			if sel:

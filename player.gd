@@ -7,7 +7,8 @@ class_name Player
 var main                       # Main level manager (untyped to avoid a cyclic class dependency)
 var sprite: Sprite2D
 var _kamen_tex := {}            # KAMEN character: baked head-replaced pose sprites, keyed like main.tex
-var _guy_tex := {}              # GUY character: 3 frames (walk1/walk2/jump), guy.png
+var _simple_tex := {}           # simple 3-frame characters: {char: {walk1,walk2,jump}} (guy, grass)
+const SIMPLE_CHARS := ["guy", "grass"]   # guy.png / grass.png — 2 walk + 1 jump, art faces RIGHT
 var shape: CollisionShape2D
 var col_size: Vector2             # AABB size used for gameplay hit tests
 var _caps: CapsuleShape2D         # physics shape — a capsule glides over tile seams
@@ -172,6 +173,7 @@ const SHRINK_FRAME := ["shrink4", "shrink1"]        # 0 small (D), 1 big (A)
 var invuln := 0.0
 var hurt_lock := 0.0             # brief control lock after a hit so the knockback shove reads
 var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
+const DOOR_WALK_SPEED := 0.5    # fraction of walk speed for the door cutscene stroll (lower = slower)
 const HURT_KNOCK_X := 150.0      # horizontal knockback (shoved opposite to facing)
 const HURT_KNOCK_UP := -200.0    # upward pop on a hit
 const HURT_LOCK_TIME := 0.3      # seconds movement input is ignored after a hit
@@ -223,11 +225,15 @@ func _ready() -> void:
 			var kp := "res://sprites/player/kamen_%s%s.png" % [tier_p, suf]
 			if ResourceLoader.exists(kp):
 				_kamen_tex[tier_p + suf] = load(kp)
-	# GUY character: a simple 3-frame guy (2 walk + 1 jump), guy.png
-	for gk in ["walk1", "walk2", "jump"]:
-		var gp := "res://sprites/player/guy_%s.png" % gk
-		if ResourceLoader.exists(gp):
-			_guy_tex[gk] = load(gp)
+	# simple 3-frame characters (guy, grass): 2 walk + 1 jump, art faces RIGHT
+	for ch in SIMPLE_CHARS:
+		var frames := {}
+		for gk in ["walk1", "walk2", "jump"]:
+			var gp := "res://sprites/player/%s_%s.png" % [ch, gk]
+			if ResourceLoader.exists(gp):
+				frames[gk] = load(gp)
+		if not frames.is_empty():
+			_simple_tex[ch] = frames
 	# SPLIT WATER TINT: a canvas shader that only tints fragments whose WORLD-Y is at or below
 	# the water surface line. The vertex stage carries each fragment's world-Y (MODEL_MATRIX
 	# folds in the player transform, sprite offset and any morph rotation), so half-submerged
@@ -288,7 +294,7 @@ func _set_col(sz: Vector2) -> void:
 
 # the standing (big-tier) collision size for the current character — GUY is shorter
 func _stand_size() -> Vector2:
-	return GUY_SIZE if main.selected_char == "guy" else BIG
+	return GUY_SIZE if main.selected_char in SIMPLE_CHARS else BIG
 
 func half_w() -> float:
 	return col_size.x / 2.0
@@ -405,8 +411,8 @@ func spawn(feet_pos: Vector2) -> void:
 	facing = 1                    # start facing right
 	global_position = Vector2(feet_pos.x, feet_pos.y - col_size.y / 2.0)
 	var start_key: String = tier() + "_stand_r"     # first frame — use the Kamen head if picked
-	if main.selected_char == "guy" and not _guy_tex.is_empty():
-		_apply_frame(_guy_tex["walk1"], facing < 0)
+	if _simple_tex.has(main.selected_char):
+		_apply_frame(_simple_tex[main.selected_char]["walk1"], facing < 0)
 	else:
 		_apply_frame(_kamen_tex[start_key] if (main.selected_char == "kamen" and _kamen_tex.has(start_key)) else main.tex[start_key])
 
@@ -918,8 +924,8 @@ func _exit_morph() -> bool:
 
 const MORPH_SPEED := 1.5          # morph ball rolls 1.5x normal move speed
 const BALL_BOUNCE_MIN := 100.0   # only bounce when landing faster than this (a real drop, not a step)
-const BALL_BOUNCE_FACTOR := 0.7  # bounce keeps this fraction of the impact speed → diminishing hops
-const BALL_BOUNCE_MAX := 240.0   # cap so it stays a LITTLE bounce (Metroid morph ball)
+const BALL_BOUNCE_FACTOR := 1.0  # bounce keeps this fraction of the impact speed (1.0 = ~2x the old hop)
+const BALL_BOUNCE_MAX := 280.0   # cap on the bounce speed
 func _morph_physics(delta: float, on_floor: bool) -> void:
 	var running := Input.is_action_pressed("run")
 	var max_s: float = (main.RUN_MAX if running else main.WALK_MAX) * MORPH_SPEED
@@ -1364,15 +1370,16 @@ func _apply_frame(t: Texture2D, flip := false) -> void:
 	sprite.position.y = col_size.y / 2.0 - t.get_height() / 2.0
 
 func _animate() -> void:
-	# GUY character: only 3 frames — jump in the air, alternate walk1/walk2 while moving,
+	# SIMPLE 3-frame character (guy, grass): jump in the air, alternate walk1/walk2 while moving,
 	# walk1 as the standing/idle frame. Art faces RIGHT → mirror when facing left.
-	if main.selected_char == "guy" and not _guy_tex.is_empty():
+	if _simple_tex.has(main.selected_char):
+		var st: Dictionary = _simple_tex[main.selected_char]
 		var gk := "walk1"
 		if not grounded or grappling:
 			gk = "jump"
 		elif absf(velocity.x) > 9.0 or wall_push > 0.0:
 			gk = "walk2" if int(walk_anim) % 2 == 1 else "walk1"
-		_apply_frame(_guy_tex.get(gk, _guy_tex["walk1"]), facing < 0)
+		_apply_frame(st.get(gk, st["walk1"]), facing < 0)
 		return
 	var pre := tier()
 	var kf := _pose_key_flip()
@@ -1567,7 +1574,9 @@ func _spawn_death_explosion() -> void:
 # just stroll at walk speed in `door_walk`, keep gravity so he stays on the floor.
 func _door_walk_physics(delta: float) -> void:
 	facing = door_walk
-	velocity.x = float(door_walk) * main.WALK_MAX
+	# EASE into the stroll speed (don't snap from run/walk speed → smooth entry, no jerk)
+	var target_vx: float = float(door_walk) * main.WALK_MAX * DOOR_WALK_SPEED
+	velocity.x = move_toward(velocity.x, target_vx, main.WALK_ACC * delta)
 	velocity.y = minf(velocity.y + main.GRAVITY * delta, main.MAX_FALL)
 	move_and_slide()
 	grounded = is_on_floor()

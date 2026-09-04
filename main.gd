@@ -21,9 +21,11 @@ const CAM_SMOOTH := 8.0
 # Horizontal room-camera pan speed (higher = tighter follow within a room, lower = floatier
 # scroll between rooms). Eased so crossing a door glides to the next segment.
 const CAM_ROOM_PAN := 14.0
-const CAM_ROOM_SLOW := 3.0      # slow, deliberate scroll when crossing a door into the next room
+const CAM_ROOM_SLOW := 1.6      # slow, deliberate scroll when crossing a door into the next room
 const FIXED_V_ROOMS := [1]      # sections whose vertical camera NEVER moves up (a pinned ground view)
 const LOCKED_V_ROOMS := [2]     # sections that don't pan up on a jump but re-frame when you land
+const ROOM_LEVELS := [28]       # levels that use the METROIDVANIA room/section camera. Everything else
+								# (e.g. Level 5) uses the plain FREE camera. Add file #s here as needed.
 
 var FLAG_X := 198          # flagpole column (set per level, or by painting the flag marker)
 var CASTLE_X := 202        # castle column (set per level)
@@ -70,7 +72,7 @@ const ATLAS_AXE := 33
 # palette icon — paint it to block out the large pipe structure. Real art/behaviour TBD.
 const ATLAS_PIPEUP := 34
 const BLACK_TILE_ATLAS := 60    # decorative solid-black tile: NO collision AND excluded from the
-                                # level's camera extent (painting it never makes the camera pan to it)
+								# level's camera extent (painting it never makes the camera pan to it)
 # WATER (Super Metroid style): 45 = surface (wavy bright crest), 46 = body. Both NO
 # collision — you walk/jump/fall through them, but while submerged the player's movement,
 # jump and fall are heavily slowed (player.gd reads main.in_water()). Paint a pool of them.
@@ -1022,7 +1024,7 @@ func _terrain_extent_no_deco() -> Rect2i:
 	var max_c := Vector2i(-2147483648, -2147483648)
 	var any := false
 	for cell in terrain.get_used_cells():
-		if terrain.get_cell_atlas_coords(cell).x == BLACK_TILE_ATLAS:
+		if terrain.get_cell_atlas_coords(cell).x >= BLACK_TILE_ATLAS:   # 60 black, 61 navy = decorative
 			continue
 		any = true
 		min_c.x = mini(min_c.x, cell.x); min_c.y = mini(min_c.y, cell.y)
@@ -1751,6 +1753,9 @@ func current_section() -> int:
 func section_count() -> int:
 	return maxi(1, _segments.size())
 
+func uses_rooms() -> bool:
+	return ROOM_LEVELS.has(_level_file)
+
 # Metroid door transition: once you've shot the near blue half and walked into the doorway,
 # the FAR half opens on its own — you walk behind the panel (its z-order) and out the far side.
 func _update_doors() -> void:
@@ -1814,6 +1819,7 @@ func _drive_door_walk() -> void:
 func _end_door_walk() -> void:
 	if player:
 		player.door_walk = 0
+		_cam_seg = _segment_for(player.global_position.x)   # settle in the room we walked into (no re-pan)
 	_door_walk_pair = null
 	_door_walk_dir = 0
 
@@ -2790,24 +2796,34 @@ func _update_camera() -> void:
 	# ROOMS: clamp the camera to the segment (room) Mario is in. A room narrower than the screen is
 	# a fixed single screen (centred); a wider room scrolls within its bounds. Eased so crossing a
 	# door SCROLLS smoothly to the next room (Metroid-style), instead of the camera showing both.
-	var seg: Array = _segment_for(player.global_position.x) if not _segments.is_empty() else [lvl_left, lvl_right]
-	var seg_l: float = seg[0]
-	var seg_r: float = seg[1]
-	var target_x: float
-	if seg_r - seg_l <= float(VIEW_W):
-		target_x = (seg_l + seg_r) / 2.0 - float(VIEW_W) / 2.0     # single-screen room: centre it
+	var rooms: bool = ROOM_LEVELS.has(_level_file)
+	if not rooms:
+		# plain FREE camera: follow both ways, clamped to the whole painted level
+		cam_x = clampf(player.global_position.x - VIEW_W / 2.0, lvl_left, maxf(lvl_left, lvl_right - float(VIEW_W)))
+	elif _door_walk_pair != null:
+		# during the door cutscene: pan smoothly WITH Mario through the doorway (no room-edge clamp),
+		# so the scroll into the next room is one continuous glide (no pin-then-jump jerk).
+		var tgt: float = clampf(player.global_position.x - VIEW_W / 2.0, lvl_left, maxf(lvl_left, lvl_right - float(VIEW_W)))
+		cam_x = lerp(cam_x, tgt, clampf(CAM_ROOM_SLOW * get_physics_process_delta_time(), 0.0, 1.0))
 	else:
-		target_x = clampf(player.global_position.x - VIEW_W / 2.0, seg_l, seg_r - float(VIEW_W))
-	if _cam_seg.is_empty():
-		_cam_seg = seg                                            # level start: snap, don't slow-pan in
-		cam_x = target_x
-	else:
-		# SLOW pan while crossing into a new room (the Metroid room scroll); tight follow within a room
-		var transitioning: bool = (_cam_seg != seg)
-		var pan: float = CAM_ROOM_SLOW if transitioning else CAM_ROOM_PAN
-		cam_x = lerp(cam_x, target_x, clampf(pan * get_physics_process_delta_time(), 0.0, 1.0))
-		if transitioning and absf(cam_x - target_x) < 2.0:
-			_cam_seg = seg                                        # arrived in the new room
+		var seg: Array = _segment_for(player.global_position.x) if not _segments.is_empty() else [lvl_left, lvl_right]
+		var seg_l: float = seg[0]
+		var seg_r: float = seg[1]
+		var target_x: float
+		if seg_r - seg_l <= float(VIEW_W):
+			target_x = (seg_l + seg_r) / 2.0 - float(VIEW_W) / 2.0     # single-screen room: centre it
+		else:
+			target_x = clampf(player.global_position.x - VIEW_W / 2.0, seg_l, seg_r - float(VIEW_W))
+		if _cam_seg.is_empty():
+			_cam_seg = seg                                            # level start: snap, don't slow-pan in
+			cam_x = target_x
+		else:
+			# SLOW pan while crossing into a new room (the Metroid room scroll); tight follow within a room
+			var transitioning: bool = (_cam_seg != seg)
+			var pan: float = CAM_ROOM_SLOW if transitioning else CAM_ROOM_PAN
+			cam_x = lerp(cam_x, target_x, clampf(pan * get_physics_process_delta_time(), 0.0, 1.0))
+			if transitioning and absf(cam_x - target_x) < 2.0:
+				_cam_seg = seg                                        # arrived in the new room
 	# Vertical target, then EASE cam_y toward it so climbing glides instead of
 	# snapping frame-to-frame with every jump/step.
 	var target_y: float = clampf(player.global_position.y - CAM_UP_TRIGGER, lvl_top, maxf(lvl_top, lvl_bottom - float(VIEW_H)))
@@ -2820,12 +2836,13 @@ func _update_camera() -> void:
 	# remember the vertical view while grounded (LOCKED rooms hold this so a jump doesn't pan up)
 	if player.grounded or _cam_seg.is_empty():
 		_ground_cam_y = target_y
-	var v_sec: int = current_section()
-	if FIXED_V_ROOMS.has(v_sec):
-		# NEVER moves up: a pinned ground view (jumps AND climbing to higher floors don't scroll it)
-		target_y = clampf(surface_floor - float(VIEW_H), lvl_top, maxf(lvl_top, lvl_bottom - float(VIEW_H)))
-	elif LOCKED_V_ROOMS.has(v_sec):
-		target_y = _ground_cam_y                                   # no pan on jump, re-frame on landing
+	if rooms:
+		var v_sec: int = current_section()
+		if FIXED_V_ROOMS.has(v_sec):
+			# NEVER moves up: a pinned ground view (jumps AND climbing to higher floors don't scroll it)
+			target_y = clampf(surface_floor - float(VIEW_H), lvl_top, maxf(lvl_top, lvl_bottom - float(VIEW_H)))
+		elif LOCKED_V_ROOMS.has(v_sec):
+			target_y = _ground_cam_y                               # no pan on jump, re-frame on landing
 	cam_y = lerp(cam_y, target_y, clampf(CAM_SMOOTH * get_physics_process_delta_time(), 0.0, 1.0))
 	if _cam_locked:
 		cam_x = minf(cam_x, _cam_lock_x)
@@ -5382,6 +5399,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("pause"):
 		toggle_pause()
+		return
+	# SELECT / BACK on the controller (or TAB) toggles the minimap
+	if (event is InputEventJoypadButton and event.pressed and not event.is_echo() \
+			and event.button_index == JOY_BUTTON_BACK) \
+			or (event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_TAB):
+		if hud:
+			hud.map_on = not hud.map_on
 		return
 	if paused:
 		_pause_menu_input(event)
