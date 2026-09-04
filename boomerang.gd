@@ -92,6 +92,10 @@ func _physics_process(delta: float) -> void:
 		step = minf(step, BULLET_RANGE - _bullet_traveled)   # don't overshoot the 64px range
 		global_position.x += dir * step
 		_bullet_traveled += step
+		# blocked by a solid wall/block — it can't fly through terrain
+		if _solid_wall_at(global_position):
+			queue_free()
+			return
 		if _bullet_traveled >= BULLET_RANGE \
 				or t > BULLET_LIFE \
 				or global_position.x < main.cam_x - 32.0 \
@@ -109,7 +113,7 @@ func _physics_process(delta: float) -> void:
 			queue_free()                                     # caught
 			return
 		global_position += to.normalized() * SPEED * delta
-	# knock out enemies it passes through
+	# hit enemies it reaches
 	for e in main.enemies:
 		if is_instance_valid(e) and not e.dead \
 				and global_position.distance_to(e.global_position) < 14.0:
@@ -119,10 +123,34 @@ func _physics_process(delta: float) -> void:
 			elif e.has_method("knock_out"):
 				e.knock_out(dir)
 			main.sfx("kick")
+			if USE_NEW_BOOM:
+				queue_free()             # the SHOT lands ONE hit and stops (serp: 3 hits to kill)
+				return
 	# hit door switches (only the boomerang can trigger these)
 	for s in main.door_switches:
 		if is_instance_valid(s) and not s.triggered and global_position.distance_to(s.global_position) < 12.0:
 			s.hit()
+	# the DOOR blocks the shot: it hits the near part and STOPS (can't reach the far side).
+	# Half-circles also get shot out; the centre panel just blocks.
+	for dp in main.door_parts:
+		if is_instance_valid(dp) and dp.get_rect().has_point(global_position):
+			if not dp._shot:
+				dp.shoot()               # halves shoot out (no-op on the centre panel)
+			if USE_NEW_BOOM:
+				queue_free()             # the SHOT stops here — doesn't pass through the door
+				return
+
+
+# a solid wall/block at this position (not water / lava / hook) — stops the shot
+func _solid_wall_at(pos: Vector2) -> bool:
+	if main == null or main.terrain == null:
+		return false
+	var cell := Vector2i(int(floor(pos.x / 16.0)), int(floor(pos.y / 16.0)))
+	if main.terrain.get_cell_source_id(cell) < 0:
+		return false
+	var ax: int = main.terrain.get_cell_atlas_coords(cell).x
+	# not solid: lava (28/29), water (45/46), hook (47) and painted power-up tiles (48+)
+	return ax != 28 and ax != 29 and ax < 45
 
 
 func _draw() -> void:

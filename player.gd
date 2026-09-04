@@ -171,6 +171,7 @@ const SHRINK_FRAME := ["shrink4", "shrink1"]        # 0 small (D), 1 big (A)
 
 var invuln := 0.0
 var hurt_lock := 0.0             # brief control lock after a hit so the knockback shove reads
+var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
 const HURT_KNOCK_X := 150.0      # horizontal knockback (shoved opposite to facing)
 const HURT_KNOCK_UP := -200.0    # upward pop on a hit
 const HURT_LOCK_TIME := 0.3      # seconds movement input is ignored after a hit
@@ -370,7 +371,7 @@ func spawn(feet_pos: Vector2) -> void:
 	has_morph = bool(ab.get("morph", false))
 	has_walljump = bool(ab.get("walljump", false))
 	has_grapple = bool(ab.get("grapple", false))
-	has_boomerang = bool(ab.get("boomerang", false))
+	has_boomerang = true    # SHOT: always start with it (the bullet weapon), regardless of pickups
 	has_waterwalk = bool(ab.get("waterwalk", false))
 	has_dash = bool(ab.get("dash", false))
 	has_riderkick = bool(ab.get("riderkick", false))
@@ -383,6 +384,7 @@ func spawn(feet_pos: Vector2) -> void:
 	morphed = false
 	air_was_submerged = false
 	hurt_lock = 0.0                     # no leftover knockback lock into a fresh life
+	door_walk = 0                      # not mid-door-transition
 	if sprite:
 		sprite.modulate = Color.WHITE   # clear any leftover underwater tint
 		sprite.rotation = 0.0           # clear any leftover morph-ball roll (reset while rolling)
@@ -466,6 +468,10 @@ func _physics_process(delta: float) -> void:
 
 
 func _update_alive(delta: float) -> void:
+	# DOOR TRANSITION: control is locked while Main auto-walks Mario through a door.
+	if door_walk != 0:
+		_door_walk_physics(delta)
+		return
 	# SMB1: only while RUNNING does "a foot over a block across a 1-tile gap" count as
 	# grounded (so you glide across). Slow/stopped → not grounded → you fall in.
 	# On the bike, lava counts as footing at ANY speed (you drive across its surface), so
@@ -1556,6 +1562,17 @@ func _spawn_death_explosion() -> void:
 		p.global_position = global_position
 		p.emitting = true
 		p.finished.connect(p.queue_free)      # clean up when the burst ends
+
+# Cutscene walk through a door (Main drives the direction + opens/closes the halves). No input:
+# just stroll at walk speed in `door_walk`, keep gravity so he stays on the floor.
+func _door_walk_physics(delta: float) -> void:
+	facing = door_walk
+	velocity.x = float(door_walk) * main.WALK_MAX
+	velocity.y = minf(velocity.y + main.GRAVITY * delta, main.MAX_FALL)
+	move_and_slide()
+	grounded = is_on_floor()
+	walk_anim += absf(velocity.x) * delta * 0.25
+	_animate()
 
 func _update_dead(delta: float) -> void:
 	dead_timer += delta

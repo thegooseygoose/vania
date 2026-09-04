@@ -18,6 +18,12 @@ const CAM_UP_TRIGGER := 96.0
 # How fast the vertical camera eases toward its target (higher = snappier, lower =
 # floatier). Smooths the scroll-up so climbing doesn't look jerky.
 const CAM_SMOOTH := 8.0
+# Horizontal room-camera pan speed (higher = tighter follow within a room, lower = floatier
+# scroll between rooms). Eased so crossing a door glides to the next segment.
+const CAM_ROOM_PAN := 14.0
+const CAM_ROOM_SLOW := 3.0      # slow, deliberate scroll when crossing a door into the next room
+const FIXED_V_ROOMS := [1]      # sections whose vertical camera NEVER moves up (a pinned ground view)
+const LOCKED_V_ROOMS := [2]     # sections that don't pan up on a jump but re-frame when you land
 
 var FLAG_X := 198          # flagpole column (set per level, or by painting the flag marker)
 var CASTLE_X := 202        # castle column (set per level)
@@ -63,6 +69,8 @@ const ATLAS_AXE := 33
 # "pipe over" giant-pipe placeholder (col 34): a plain SOLID block with a "U in a block"
 # palette icon — paint it to block out the large pipe structure. Real art/behaviour TBD.
 const ATLAS_PIPEUP := 34
+const BLACK_TILE_ATLAS := 60    # decorative solid-black tile: NO collision AND excluded from the
+                                # level's camera extent (painting it never makes the camera pan to it)
 # WATER (Super Metroid style): 45 = surface (wavy bright crest), 46 = body. Both NO
 # collision — you walk/jump/fall through them, but while submerged the player's movement,
 # jump and fall are heavily slowed (player.gd reads main.in_water()). Paint a pool of them.
@@ -82,7 +90,7 @@ const RUN_ACC := 420.0                # accelerates a touch harder to reach the 
 const AIR_ACC := 300.0                # good air steering (Metroid-style air control)
 const WALK_MAX := 77.0                # base walk speed (~1.3 px/frame, Metroid-ish)
 const RUN_MAX := 125.0                # RUN (hold Z / Xbox X): ~1.6x walk. Faster ground speed only —
-                                      # it does NOT add jump height/air-time (see _jump_speed_t)
+									  # it does NOT add jump height/air-time (see _jump_speed_t)
 const FRICTION := 300.0               # a short, crisp slide to a stop — you won't slide into blocks
 const TURN_ACC := 600.0               # crisp turn when reversing (no sluggish drift)
 # NES-Metroid jump: a strong launch + soft rise/fall = a tall, floaty ~4-tile arc. Holding
@@ -967,6 +975,7 @@ func _physics_process(delta: float) -> void:
 	_update_boss(delta)
 	_update_barrel_spawners(delta)
 	_update_gords()
+	_update_doors()
 	_update_castle_fire(delta)
 	_update_hammers()
 	_update_coins(delta)
@@ -1006,6 +1015,22 @@ func _scene_for_file(f: int) -> PackedScene:
 		return LEVEL3_SCENE
 	return LEVEL2_SCENE if f == 2 else LEVEL_SCENE
 
+# The painted terrain's bounding box, IGNORING decorative black tiles (atlas BLACK_TILE_ATLAS) so
+# they never grow the level's camera bounds. Falls back to the full rect if the level is all-black.
+func _terrain_extent_no_deco() -> Rect2i:
+	var min_c := Vector2i(2147483647, 2147483647)
+	var max_c := Vector2i(-2147483648, -2147483648)
+	var any := false
+	for cell in terrain.get_used_cells():
+		if terrain.get_cell_atlas_coords(cell).x == BLACK_TILE_ATLAS:
+			continue
+		any = true
+		min_c.x = mini(min_c.x, cell.x); min_c.y = mini(min_c.y, cell.y)
+		max_c.x = maxi(max_c.x, cell.x); max_c.y = maxi(max_c.y, cell.y)
+	if not any:
+		return terrain.get_used_rect()
+	return Rect2i(min_c, max_c - min_c + Vector2i(1, 1))
+
 func _instance_level() -> void:
 	if level and is_instance_valid(level):
 		level.queue_free()
@@ -1027,7 +1052,7 @@ func _instance_level() -> void:
 	_strip_flag_house()
 	# level top/bottom (px) from the painted terrain — supports tiles ABOVE y=0
 	# (negative rows), so the free camera can scroll up into anything you build.
-	var _hr: Rect2i = terrain.get_used_rect()
+	var _hr: Rect2i = _terrain_extent_no_deco()   # extent EXCLUDING decorative black tiles
 	lvl_top = float(_hr.position.y * TILE)
 	lvl_bottom = float((_hr.position.y + _hr.size.y) * TILE)
 	if lvl_bottom - lvl_top < float(VIEW_H):
@@ -1227,6 +1252,9 @@ func _read_spawns() -> void:
 				23: etype = "gord"                          # stationary spiky hazard (instant death; blocks barrels)
 				24: etype = "zoomer"                        # Metroid Zoomer: crawls along surfaces / around corners
 				25: etype = "serp"                          # Serp: a snail — patrols the floor VERY slowly
+				26: etype = "door_left"                     # door.png: left half-circle (boomerang-shootable)
+				27: etype = "door_mid"                      # door.png: centre panel (walk-behind, no collision)
+				28: etype = "door_right"                    # door.png: right half-circle (boomerang-shootable)
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1268,6 +1296,16 @@ func _read_spawns() -> void:
 			elif etype == "gord":
 				# stationary hazard centred on the painted tile
 				_enemy_defs.append({"pos": Vector2(cell.x * TILE + TILE / 2.0, cell.y * TILE + TILE / 2.0), "type": "gord"})
+				continue
+			elif etype == "door_left" or etype == "door_mid" or etype == "door_right":
+				# door.png piece: 48px tall, its BOTTOM resting on the painted cell's bottom.
+				# Paint 3 CONSECUTIVE cells (LEFT, MID, RIGHT): the halves are 8px and the panel 32px,
+				# so shift LEFT into the left 8px of its cell and RIGHT into the right 8px — then the
+				# three sit EDGE-TO-EDGE (no overlap) and form the full 48px door.
+				var dox := -4.0 if etype == "door_left" else (4.0 if etype == "door_right" else 0.0)
+				_enemy_defs.append({
+					"pos": Vector2(cell.x * TILE + TILE / 2.0 + dox, float((cell.y + 1) * TILE) - 24.0),
+					"type": etype})
 				continue
 			elif etype == "bowser":
 				# 32-tall sprite, centred; drop him so his feet rest on the painted tile
@@ -1540,6 +1578,15 @@ func _spawn_enemies() -> void:
 			z.spawn(d["pos"])
 			enemies.append(z)
 			continue
+		# Door pieces (door.png): painted tiles → DoorPart nodes (MID walk-behind, halves shootable)
+		if t == "door_left" or t == "door_mid" or t == "door_right":
+			var dp = DoorPart.new()
+			dp.main = self
+			dp.part = DoorPart.Part.LEFT if t == "door_left" else (DoorPart.Part.RIGHT if t == "door_right" else DoorPart.Part.MID)
+			level.add_child(dp)
+			dp.global_position = d["pos"]
+			door_parts.append(dp)   # all parts block the shot; halves also get shot out
+			continue
 		# Serp: a snail — a normal walking Enemy but its own kind so it crawls very slowly
 		if t == "serp":
 			var sp = Enemy.new()
@@ -1560,6 +1607,7 @@ func _spawn_enemies() -> void:
 		add_child(e)
 		e.spawn(d["pos"])
 		enemies.append(e)
+	_pair_doors()   # door parts are all spawned now — pair each door's LEFT+RIGHT for the transition
 
 func _spawn_coins() -> void:
 	coins_list.clear()
@@ -1591,6 +1639,10 @@ func smash_tile(tx: int, ty: int) -> int:
 var grab_points: Array = []     # GrabPoint anchors the grapple beam can latch to
 var doors: Array = []           # Door nodes (open when a switch is hit)
 var door_switches: Array = []   # DoorSwitch targets — only the boomerang can hit them
+var door_parts: Array = []      # DoorPart parts — the shot hits these (halves shoot out)
+var door_pairs: Array = []      # [LEFT, RIGHT] half pairs of each door (Metroid walk-through transition)
+var _door_walk_pair = null      # the door pair Mario is currently auto-walking through (null = none)
+var _door_walk_dir := 0         # which way he's walking through it (+1 right, -1 left)
 var bikes: Array = []           # Bike nodes (press the bike button near one to mount)
 
 # Vania: erase the painted stand-in flagpole (atlas 5 base + 6 pole) and house
@@ -1606,10 +1658,14 @@ func _wire_powerups() -> void:
 	grab_points.clear()
 	doors.clear()
 	door_switches.clear()
+	door_parts.clear()
 	bikes.clear()
 	save_stations.clear()
 	for n in level.get_children():
-		if n is Powerup:
+		if n is DoorPart:
+			n.main = self
+			door_parts.append(n)   # all parts block the shot; halves also get shot out (shoot())
+		elif n is Powerup:
 			n.main = self
 		elif n is Bike:
 			n.main = self
@@ -1628,6 +1684,138 @@ func _wire_powerups() -> void:
 			n.main = self
 			door_switches.append(n)
 	_spawn_switch_tiles()   # also turn painted atlas-16 tiles into switches
+	_pair_doors()           # match each door's LEFT+RIGHT halves for the walk-through transition
+
+# Pair each door's two blue half-circles (LEFT with the nearest RIGHT to its right, same row).
+func _pair_doors() -> void:
+	door_pairs.clear()
+	var lefts := []
+	var rights := []
+	for dp in door_parts:
+		if not is_instance_valid(dp):
+			continue
+		if dp.part == DoorPart.Part.LEFT:
+			lefts.append(dp)
+		elif dp.part == DoorPart.Part.RIGHT:
+			rights.append(dp)
+	for L in lefts:
+		var best = null
+		var bestd := 120.0   # a door can be a few tiles wide; nearest-right-wins avoids cross-pairing
+		for R in rights:
+			if absf(R.global_position.y - L.global_position.y) > 8.0:
+				continue
+			var dx: float = R.global_position.x - L.global_position.x
+			if dx > 0.0 and dx < bestd:
+				bestd = dx
+				best = R
+		if best != null:
+			door_pairs.append([L, best, false])   # 3rd = was the player inside the doorway last frame
+	_build_segments()
+
+# METROIDVANIA ROOMS: the doors split the level into horizontal segments. The camera locks to
+# the segment Mario is in (a small one = a fixed single screen; a big one scrolls within it), and
+# scrolls to the next room as he walks through a door. _segments = sorted [left, right] px ranges.
+var _segments: Array = []
+var _cam_seg: Array = []         # the room the camera is currently framing (empty = snap on next update)
+var _ground_cam_y := 0.0         # vertical camera height while grounded (held in LOCKED_V_ROOMS)
+func _build_segments() -> void:
+	_segments.clear()
+	_cam_seg = []                # new level / re-pair: snap the camera into the starting room
+	var bounds := [lvl_left, lvl_right]
+	for pair in door_pairs:
+		var L = pair[0]
+		var R = pair[1]
+		if is_instance_valid(L) and is_instance_valid(R):
+			bounds.append((L.global_position.x + R.global_position.x) / 2.0)
+	bounds.sort()
+	for i in range(bounds.size() - 1):
+		if bounds[i + 1] - bounds[i] > 1.0:
+			_segments.append([bounds[i], bounds[i + 1]])
+
+func _segment_for(x: float) -> Array:
+	for seg in _segments:
+		if x >= seg[0] and x < seg[1]:
+			return seg
+	return [lvl_left, lvl_right]
+
+# which room (section) the player is in, 1-based (for the HUD)
+func current_section() -> int:
+	if _segments.is_empty() or player == null:
+		return 1
+	var x: float = player.global_position.x
+	for i in range(_segments.size()):
+		if x >= _segments[i][0] and x < _segments[i][1]:
+			return i + 1
+	return _segments.size()
+
+func section_count() -> int:
+	return maxi(1, _segments.size())
+
+# Metroid door transition: once you've shot the near blue half and walked into the doorway,
+# the FAR half opens on its own — you walk behind the panel (its z-order) and out the far side.
+func _update_doors() -> void:
+	if player == null or player.dead:
+		return
+	# already mid-transition: drive Mario across, open the far half, close behind, then release
+	if _door_walk_pair != null:
+		_drive_door_walk()
+		return
+	if door_pairs.is_empty():
+		return
+	var pr: Rect2 = player.get_rect()
+	for pair in door_pairs:
+		var L = pair[0]
+		var R = pair[1]
+		if not is_instance_valid(L) or not is_instance_valid(R):
+			continue
+		# the doorway = the full door span (left edge of L to right edge of R), at door height
+		var region := Rect2(L.global_position.x - 6.0, L.global_position.y - 24.0,
+			(R.global_position.x + 6.0) - (L.global_position.x - 6.0), 48.0)
+		if not pr.intersects(region):
+			continue
+		# entered through the half he shot open -> auto-walk toward the still-closed far half
+		if L._shot and not R._shot:
+			_start_door_walk(pair, 1)
+			return
+		elif R._shot and not L._shot:
+			_start_door_walk(pair, -1)
+			return
+
+func _start_door_walk(pair, d: int) -> void:
+	_door_walk_pair = pair
+	_door_walk_dir = d
+	player.door_walk = d
+
+# Auto-walk transition: open the FAR half as Mario reaches it, then CLOSE both behind him and release.
+func _drive_door_walk() -> void:
+	var L = _door_walk_pair[0]
+	var R = _door_walk_pair[1]
+	if not is_instance_valid(L) or not is_instance_valid(R):
+		_end_door_walk()
+		return
+	var near = L if _door_walk_dir > 0 else R   # the door he shot open + walked in through
+	var far = R if _door_walk_dir > 0 else L    # the door on the far side
+	# the NEAR door closes behind him FIRST, the moment he's stepped past it (smoother, less mechanical)
+	if near._shot:
+		var past_near: bool = (player.global_position.x > near.global_position.x + 12.0) if _door_walk_dir > 0 \
+			else (player.global_position.x < near.global_position.x - 12.0)
+		if past_near:
+			near.close()
+	# the FAR door opens just before he reaches it, so he strolls straight out
+	if not far._shot and absf(player.global_position.x - far.global_position.x) < 18.0:
+		far.shoot()
+	# once he's clear of the door on the far side, close the FAR door behind him and hand back control
+	var clear: bool = (player.global_position.x > R.global_position.x + 12.0) if _door_walk_dir > 0 \
+		else (player.global_position.x < L.global_position.x - 12.0)
+	if clear:
+		far.close()
+		_end_door_walk()
+
+func _end_door_walk() -> void:
+	if player:
+		player.door_walk = 0
+	_door_walk_pair = null
+	_door_walk_dir = 0
 
 
 const _ABILITY_KEYS := ["double_jump", "break", "morph", "walljump", "grapple", "boomerang", "waterwalk"]
@@ -1852,7 +2040,7 @@ func collect_powerup(shape: String) -> void:
 	sfx("powerup")
 	var msg := {"square": "DOUBLE JUMP!", "triangle": "GROUND POUND!  (jump, then Down)",
 		"circle": "MORPH BALL!  (press Down)", "diamond": "WALL JUMP!  (jump off walls)",
-		"star": "GRAPPLE BEAM!  (hold Y/C to swing, release to launch)", "boomerang": "BOOMERANG!  (C, or B on controller)",
+		"star": "GRAPPLE BEAM!  (hold Y/C to swing, release to launch)", "boomerang": "SHOT!  (C, or B on controller)",
 		"waterwalk": "GRAVITY SUIT  YOU CAN MOVE FREELY THROUGH WATER", "dash": "DASH ATTACK!  (press F / LB to lunge)",
 		"riderkick": "RIDER KICK!  (jump, then K / RT to dive-kick)",
 		"timeslow": "OVERCLOCK!  (press T / L3 to slow time)", "hover": "HOVER JETS!  (hold Jump in the air to float)"}
@@ -2599,7 +2787,27 @@ func _update_camera() -> void:
 	# line CAM_UP_TRIGGER (px from the top of the screen), then scroll up keeping him
 	# on that line. Because the bottom clamp is the max, cam_y only leaves the ground
 	# once player.y - CAM_UP_TRIGGER rises above it — i.e. he crosses the red line.
-	cam_x = clampf(player.global_position.x - VIEW_W / 2.0, lvl_left, maxf(lvl_left, lvl_right - float(VIEW_W)))
+	# ROOMS: clamp the camera to the segment (room) Mario is in. A room narrower than the screen is
+	# a fixed single screen (centred); a wider room scrolls within its bounds. Eased so crossing a
+	# door SCROLLS smoothly to the next room (Metroid-style), instead of the camera showing both.
+	var seg: Array = _segment_for(player.global_position.x) if not _segments.is_empty() else [lvl_left, lvl_right]
+	var seg_l: float = seg[0]
+	var seg_r: float = seg[1]
+	var target_x: float
+	if seg_r - seg_l <= float(VIEW_W):
+		target_x = (seg_l + seg_r) / 2.0 - float(VIEW_W) / 2.0     # single-screen room: centre it
+	else:
+		target_x = clampf(player.global_position.x - VIEW_W / 2.0, seg_l, seg_r - float(VIEW_W))
+	if _cam_seg.is_empty():
+		_cam_seg = seg                                            # level start: snap, don't slow-pan in
+		cam_x = target_x
+	else:
+		# SLOW pan while crossing into a new room (the Metroid room scroll); tight follow within a room
+		var transitioning: bool = (_cam_seg != seg)
+		var pan: float = CAM_ROOM_SLOW if transitioning else CAM_ROOM_PAN
+		cam_x = lerp(cam_x, target_x, clampf(pan * get_physics_process_delta_time(), 0.0, 1.0))
+		if transitioning and absf(cam_x - target_x) < 2.0:
+			_cam_seg = seg                                        # arrived in the new room
 	# Vertical target, then EASE cam_y toward it so climbing glides instead of
 	# snapping frame-to-frame with every jump/step.
 	var target_y: float = clampf(player.global_position.y - CAM_UP_TRIGGER, lvl_top, maxf(lvl_top, lvl_bottom - float(VIEW_H)))
@@ -2609,6 +2817,15 @@ func _update_camera() -> void:
 	var surface_floor: float = float((FLOOR + 2) * TILE)      # bottom of the ground rows
 	if player.global_position.y < surface_floor:
 		target_y = minf(target_y, surface_floor - float(VIEW_H))
+	# remember the vertical view while grounded (LOCKED rooms hold this so a jump doesn't pan up)
+	if player.grounded or _cam_seg.is_empty():
+		_ground_cam_y = target_y
+	var v_sec: int = current_section()
+	if FIXED_V_ROOMS.has(v_sec):
+		# NEVER moves up: a pinned ground view (jumps AND climbing to higher floors don't scroll it)
+		target_y = clampf(surface_floor - float(VIEW_H), lvl_top, maxf(lvl_top, lvl_bottom - float(VIEW_H)))
+	elif LOCKED_V_ROOMS.has(v_sec):
+		target_y = _ground_cam_y                                   # no pan on jump, re-frame on landing
 	cam_y = lerp(cam_y, target_y, clampf(CAM_SMOOTH * get_physics_process_delta_time(), 0.0, 1.0))
 	if _cam_locked:
 		cam_x = minf(cam_x, _cam_lock_x)

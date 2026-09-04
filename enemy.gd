@@ -34,7 +34,9 @@ var zoom_anim := 0.0            # 2-frame walk-cycle timer
 const ZOOM := Vector2(14, 14)   # collision box (fits a 1-tile channel)
 const ZOOM_SPEED := 42.0        # crawl speed (px/s)
 const SERP_SPD := 10.0          # Serp (snail) patrol speed — VERY slow (normal ENEMY_SPD is 34)
-const SERP_SIZE := Vector2(16, 22)  # taller box (~ the 24px sprite) so landing on it actually stomps
+const SERP_SIZE := Vector2(16, 20)  # ~ the 21px sprite so landing on it stomps (no invisible pixels)
+var serp_hp := 3                # Serp takes 3 SHOTS to kill (flashes on each hit)
+var _flash_t := 0.0             # brief white flash when hit by a shot
 
 # shell timers
 var shell_timer := 0.0         # how long the shell has sat still
@@ -191,6 +193,12 @@ func _physics_process(delta: float) -> void:
 		_update_shell(delta)
 
 	_animate()
+	# white flash when hit by a shot (e.g. serp taking one of its 3 hits)
+	if _flash_t > 0.0:
+		_flash_t -= delta
+		sprite.modulate = Color(3.0, 3.0, 3.0)
+	else:
+		sprite.modulate = Color.WHITE
 
 
 # Turn around — but if reversals keep coming faster than WEDGE_WINDOW it's stuck in
@@ -362,8 +370,15 @@ func knock_out(hit_dir := 1) -> void:
 		return
 	_do_knock_out(hit_dir)
 
-# The boomerang's kill — the one thing that takes a zoomer down (works on any enemy).
+# The boomerang/SHOT's kill — the one thing that takes a zoomer down (works on any enemy).
 func boomerang_kill(hit_dir := 1) -> void:
+	if kind == "serp":
+		# Serp is tough: 3 shots to kill, flashing white on each hit
+		serp_hp -= 1
+		_flash_t = 0.18
+		if serp_hp <= 0:
+			_do_knock_out(hit_dir)
+		return
 	_do_knock_out(hit_dir)
 
 func _do_knock_out(hit_dir := 1) -> void:

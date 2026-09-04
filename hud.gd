@@ -62,6 +62,11 @@ func _paint(ci: CanvasItem) -> void:
 	font.draw_text(ci, Vector2(159, 21), main.world_label, 1.0, Color.WHITE)
 	font.draw_text(ci, Vector2(206, 11), "TIME", 1.0, Color.WHITE)
 	font.draw_text(ci, Vector2(206, 21), main.time_string(), 1.0, Color.WHITE)
+	# which room (section) of the level you're in — beside the WORLD readout
+	if main.game_state == "play":
+		font.draw_text(ci, Vector2(150, 31),
+			"SECT " + str(main.current_section()) + "/" + str(main.section_count()),
+			1.0, Color(0.5, 1.0, 0.75))
 
 	# fog-of-war minimap (top-right) during normal play
 	if main.game_state == "play" and not main.show_level_card and not main.attract_mode:

@@ -13,7 +13,7 @@ config_version=5
 config/name="Vania"
 run/main_scene="res://Intro.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
-config/icon="res://sprites/new player/MARIO LOGO.png"
+config/icon="res://sprites/vania_icon.png"
 
 [display]
 
