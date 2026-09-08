@@ -14,7 +14,7 @@ var _msg_text := ""
 var _msg_hide_ms := 0
 
 # ---- minimap (fog-of-war) ----
-var map_on := true             # minimap visible? toggled by the SELECT button (controller) / TAB
+var map_on := false            # minimap visible? starts OFF — toggled ON by the SELECT button (controller) / TAB
 var map_seen := {}             # Vector2i cell -> true : tiles revealed by exploring
 var _map_level := -999         # which level file the current fog belongs to (reset on change)
 var _map_rect := Rect2i()      # the level's terrain bounds (px-per-tile scale is derived from it)
@@ -59,22 +59,18 @@ func _paint(ci: CanvasItem) -> void:
 		font.draw_text(ci, Vector2(0, main.VIEW_H / 2.0 - 6), main.level_card_text, 2.0, Color.WHITE, w)
 		return
 	# top status row — score / MARIO / coins removed; the minimap lives in that top-left space now
-	font.draw_text(ci, Vector2(150, 11), "WORLD", 1.0, Color.WHITE)
-	font.draw_text(ci, Vector2(159, 21), main.world_label, 1.0, Color.WHITE)
-	font.draw_text(ci, Vector2(206, 11), "TIME", 1.0, Color.WHITE)
-	font.draw_text(ci, Vector2(206, 21), main.time_string(), 1.0, Color.WHITE)
-	# which room (section) of the level you're in — beside the WORLD readout (room-camera levels only)
+	# which room (section) of the level you're in (room-camera levels only) — WORLD readout removed
 	if main.game_state == "play" and main.uses_rooms():
-		font.draw_text(ci, Vector2(150, 31),
+		font.draw_text(ci, Vector2(150, 16),
 			"SECT " + str(main.current_section()) + "/" + str(main.section_count()),
 			1.0, Color(0.5, 1.0, 0.75))
 
 	# fog-of-war minimap (top-left) during normal play — toggled by the SELECT button
 	if map_on and main.game_state == "play" and not main.show_level_card and not main.attract_mode:
 		_paint_minimap(ci)
-	# 5-heart health readout (top-left, under the score)
+	# numeric HP readout (top-left)
 	if main.player != null and not main.show_level_card:
-		_paint_hearts(ci)
+		_paint_hp(ci)
 
 	# attract/demo mode banner
 	if main.attract_mode:
@@ -165,20 +161,20 @@ func reset_map() -> void:
 	_map_level = -999
 
 
-# 5-heart health, drawn top-left under the score. Filled = current, dark = lost.
-const _HEART := ["0110110", "1111111", "1111111", "0111110", "0011100", "0001000"]
-func _paint_hearts(ci: CanvasItem) -> void:
-	var cur: int = int(main.player.hearts)
-	var maxh: int = int(main.player.MAX_HEARTS)
-	var hy := 12.0                          # top row, to the RIGHT of the minimap (before WORLD)
-	for i in maxh:
-		var hx := 92.0 + float(i) * 9.0
-		var col := Color(0.95, 0.2, 0.32) if i < cur else Color(0.24, 0.24, 0.30)
-		for ry in _HEART.size():
-			var row: String = _HEART[ry]
-			for rx in row.length():
-				if row[rx] == "1":
-					ci.draw_rect(Rect2(hx + float(rx), hy + float(ry), 1.0, 1.0), col)
+# numeric HP, drawn top row beside the minimap. "HP 100", turns red/orange as it drops.
+func _paint_hp(ci: CanvasItem) -> void:
+	var cur: int = int(main.player.hp)
+	var maxhp: int = int(main.player.MAX_HP)
+	var frac: float = float(cur) / float(maxhp) if maxhp > 0 else 0.0
+	# green when healthy → yellow → red as it drains
+	var col: Color
+	if frac > 0.5:
+		col = Color(0.55, 1.0, 0.55)
+	elif frac > 0.25:
+		col = Color(1.0, 0.85, 0.25)
+	else:
+		col = Color(1.0, 0.35, 0.3)
+	font.draw_text(ci, Vector2(92, 16), "HP " + str(cur), 1.0, col)
 
 
 # A small fog-of-war minimap in the top-right: the whole level scaled to fit a fixed box,

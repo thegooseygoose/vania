@@ -38,6 +38,26 @@ const SERP_SIZE := Vector2(16, 20)  # ~ the 21px sprite so landing on it stomps 
 var serp_hp := 3                # Serp takes 3 SHOTS to kill (flashes on each hit)
 var _flash_t := 0.0             # brief white flash when hit by a shot
 
+# Bug (flyer, kind == "bug"): rises to the player's head height, then hovers + chases.
+const BUG_SIZE := Vector2(12, 12)
+const BUG_SPEED := 57.5         # horizontal chase speed once it has risen (was 46 — +25%)
+const BUG_RISE := 62.0          # vertical climb / head-height tracking speed
+const BUG_BOB_AMP := 3.0        # gentle up/down hover bob (px)
+const BUG_BOB_FREQ := 6.0
+const BUG_RESPAWN_DELAY := 1.4  # after dying, a bug re-emerges from its origin after this long
+var bug_risen := false          # false while still climbing up to head height
+var bug_bob_t := 0.0            # flap + bob timer
+var bug_spawn_pos := Vector2.ZERO  # where it first appeared (its pipe) — it respawns here
+
+# Metroid boss (flyer, kind == "metroid"): slow menacing float that homes onto the player.
+# SHOT-only: immune to stomp/dash/rider-kick; each shot chips 1 off BOSS_HP; contact hurts you.
+const METROID_SIZE := Vector2(18, 18)
+const METROID_SPEED := 30.0     # slow homing float toward the player
+const METROID_BOB := 10.0       # vertical wobble amplitude while drifting
+const BOSS_HP := 12             # shots to kill
+var boss_hp := BOSS_HP
+var metroid_t := 0.0            # pulse + wobble timer
+
 # shell timers
 var shell_timer := 0.0         # how long the shell has sat still
 var push_timer := 0.0          # how long the shell has slid in the current direction
@@ -99,18 +119,42 @@ func spawn(feet_pos: Vector2) -> void:
 		zoom_next = pc
 		global_position = _zoom_center(pc)
 		return
+	if kind == "bug":
+		rect.size = BUG_SIZE
+		dir = -1
+		bug_risen = false
+		bug_bob_t = 0.0
+		global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)  # sits on the painted cell, then rises
+		bug_spawn_pos = global_position   # remember its origin (the pipe) so it can respawn there
+		_animate()
+		return
+	if kind == "metroid":
+		rect.size = METROID_SIZE
+		dir = -1
+		boss_hp = BOSS_HP
+		metroid_t = 0.0
+		global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)   # floats from where it's painted
+		_animate()
+		return
 	rect.size = SERP_SIZE if kind == "serp" else (KOOPA if kind == "koopa" else GOOMBA)
 	dir = -1
 	global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)
 	velocity = Vector2(dir * (SERP_SPD if kind == "serp" else main.ENEMY_SPD), 0)
+	_animate()   # set the initial sprite frame NOW so it's visible in place before it activates
+	             # (otherwise it has no texture until it first moves → it "pops in")
 
 
 func _physics_process(delta: float) -> void:
-	if main.paused or main.intro_12 or main.actors_frozen():
-		return
+	if main.paused or main.intro_12 or main.actors_frozen() or main._door_walk_pair != null:
+		return   # also frozen for the WHOLE door transition (walk + settle), so enemies in the
+		         # room you enter don't move until the camera has finished framing it
 	delta *= main.world_slow        # OVERCLOCK: enemies crawl while the world is slowed (player isn't)
 	if not active:
-		if global_position.x < main.cam_x + main.VIEW_W + 32:
+		# Serp waits until it's actually ON screen before it starts crawling (no 32px off-screen
+		# pre-activation), so it never "appears" already moving — it holds still, then walks once
+		# it has entered the view. Other enemies keep the usual small lookahead.
+		var appear_margin: float = 0.0 if kind == "serp" else 32.0
+		if global_position.x < main.cam_x + main.VIEW_W + appear_margin:
 			active = true
 		else:
 			return
@@ -131,6 +175,11 @@ func _physics_process(delta: float) -> void:
 			if dead_timer > 0.9:
 				remove_me = true
 			return
+		if kind == "bug":
+			# bugs don't get removed — they re-emerge from their origin (the pipe) after a beat
+			if dead_timer > BUG_RESPAWN_DELAY:
+				_bug_respawn()
+			return
 		if dead_timer > (0.5 if squished else 4.0):
 			remove_me = true
 		return
@@ -138,6 +187,16 @@ func _physics_process(delta: float) -> void:
 	# Zoomer: crawl along the surface (its own movement, no gravity/patrol)
 	if kind == "zoomer":
 		_zoomer_move(delta)
+		return
+
+	# Bug: fly up to head height, then hover + chase (no gravity/patrol)
+	if kind == "bug":
+		_bug_move(delta)
+		return
+
+	# Metroid boss: slow homing float toward the player (no gravity/patrol)
+	if kind == "metroid":
+		_metroid_move(delta)
 		return
 
 	# horizontal patrol
@@ -279,6 +338,17 @@ func _animate() -> void:
 	if kind == "serp":
 		_frame(_t("serp"), dir < 0)   # 1-frame snail; art faces RIGHT, mirror when crawling left
 		return
+	if kind == "bug":
+		# 2-frame wing flap; art is symmetric, flip toward travel
+		_frame(_t("bug1") if int(bug_bob_t * 12.0) % 2 else _t("bug0"), dir < 0)
+		return
+	if kind == "metroid":
+		# 2-frame pulse, drawn CENTRED on the body (not feet-aligned like _frame)
+		sprite.flip_v = false
+		sprite.flip_h = false
+		sprite.position = Vector2.ZERO
+		sprite.texture = main.tex["metroid1"] if int(metroid_t * 3.0) % 2 else main.tex["metroid0"]
+		return
 	if kind == "goomba":
 		if squished:
 			_frame(_t("goomba_flat"), false)
@@ -364,9 +434,9 @@ func flip_stun() -> void:
 	velocity.y = -120.0      # small hop so the flip reads as being knocked up
 
 func knock_out(hit_dir := 1) -> void:
-	# Zoomers shrug off every generic kill (stomp/dash/rider-kick/fireball/sliding shell all
-	# route through knock_out) — ONLY the boomerang kills them (see boomerang_kill).
-	if kind == "zoomer":
+	# Zoomers AND the Metroid boss shrug off every generic kill (stomp/dash/rider-kick/fireball/
+	# sliding shell all route through knock_out) — ONLY the boomerang/SHOT hurts them (boomerang_kill).
+	if kind == "zoomer" or kind == "metroid":
 		return
 	_do_knock_out(hit_dir)
 
@@ -379,9 +449,26 @@ func boomerang_kill(hit_dir := 1) -> void:
 		if serp_hp <= 0:
 			_do_knock_out(hit_dir)
 		return
+	if kind == "metroid":
+		# the Metroid boss: BOSS_HP shots to kill, flashing on each hit
+		boss_hp -= 1
+		_flash_t = 0.16
+		if boss_hp <= 0:
+			_do_knock_out(hit_dir)
+		return
 	_do_knock_out(hit_dir)
 
 func _do_knock_out(hit_dir := 1) -> void:
+	# Zoomer, Serp & the Metroid boss: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
+	if kind == "zoomer" or kind == "serp" or kind == "metroid":
+		_spawn_explosion()
+		dead = true
+		squished = false
+		dead_timer = 0.0
+		collision_mask = 0
+		sprite.visible = false
+		remove_me = true
+		return
 	dead = true
 	squished = false
 	dead_timer = 0.0
@@ -394,6 +481,16 @@ func _do_knock_out(hit_dir := 1) -> void:
 		_frame(_t("koopa_shell"), false)
 	sprite.flip_v = true
 	sprite.rotation = 0.0        # a dying zoomer drops its surface-hugging tilt so the flip reads right
+
+# A chunky PIXEL-ART explosion at the enemy's position (used when a zoomer is killed).
+const ExplosionFX := preload("res://explosion.gd")
+func _spawn_explosion() -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	var fx := ExplosionFX.new()
+	parent.add_child(fx)
+	fx.global_position = global_position
 
 # =========================================================================
 # Zoomer movement — a boundary (wall) follower: it keeps the surface on one
@@ -451,12 +548,73 @@ func _zoomer_move(delta: float) -> void:
 	var up := -Vector2(_zoom_rot(zoom_dir))   # away from the surface
 	sprite.rotation = up.angle() + PI / 2.0
 
+# Bug (flyer): climb straight up until it reaches the player's head height, then hover at that
+# height and chase the player horizontally with a gentle bob. No gravity, no terrain collision.
+func _bug_move(delta: float) -> void:
+	bug_bob_t += delta
+	var p = main.player
+	if p == null or not is_instance_valid(p):
+		return
+	# "head height" = just above the top of the player's body
+	var head_y: float = p.global_position.y - p.col_size.y * 0.5 - 3.0
+	if not bug_risen:
+		global_position.y -= BUG_RISE * delta         # climb up out of the pipe
+		if global_position.y <= head_y:
+			global_position.y = head_y
+			bug_risen = true
+	else:
+		# home toward the player horizontally, and track head height with a hover bob
+		dir = 1 if p.global_position.x >= global_position.x else -1
+		global_position.x = move_toward(global_position.x, p.global_position.x, BUG_SPEED * delta)
+		var target_y: float = head_y + sin(bug_bob_t * BUG_BOB_FREQ) * BUG_BOB_AMP
+		global_position.y = move_toward(global_position.y, target_y, BUG_RISE * delta)
+	velocity = Vector2.ZERO
+	_animate()
+
+# re-emerge from the origin (pipe): reset to a fresh, un-risen bug at its spawn point
+func _bug_respawn() -> void:
+	dead = false
+	dash_killed = false
+	squished = false
+	dead_timer = 0.0
+	collision_mask = 1
+	bug_risen = false
+	bug_bob_t = 0.0
+	velocity = Vector2.ZERO
+	sprite.flip_v = false
+	sprite.rotation = 0.0
+	sprite.modulate = Color.WHITE
+	global_position = bug_spawn_pos
+	active = true
+	_animate()
+
+# Metroid boss: a slow, menacing homing float toward the player with a vertical wobble.
+# No gravity, no terrain collision. Only the SHOT hurts it; contact hurts the player.
+func _metroid_move(delta: float) -> void:
+	metroid_t += delta
+	var p = main.player
+	if p == null or not is_instance_valid(p):
+		return
+	var to: Vector2 = p.global_position - global_position
+	if to.length() > 1.0:
+		global_position += to.normalized() * METROID_SPEED * delta
+	global_position.y += sin(metroid_t * 2.4) * METROID_BOB * delta    # eerie drifting wobble
+	dir = 1 if to.x >= 0.0 else -1
+	velocity = Vector2.ZERO
+	_animate()
+	# white flash briefly after each shot lands
+	if _flash_t > 0.0:
+		_flash_t -= delta
+		sprite.modulate = Color(2.2, 2.2, 2.2)
+	else:
+		sprite.modulate = Color.WHITE
+
 # DASH KILL: a flashier death than knock_out — the enemy is rocketed away hard and
 # tumbling, glowing cyan, and then vaporizes. The spin/glow/fade run in the dead branch
 # of _physics_process (gated on dash_killed).
 func dash_kill(hit_dir := 1) -> void:
-	if kind == "zoomer":
-		return          # the dash can't kill a zoomer — only the boomerang can
+	if kind == "zoomer" or kind == "metroid":
+		return          # the dash can't kill a zoomer or the Metroid boss — only the shot can
 	dead = true
 	dash_killed = true
 	squished = false

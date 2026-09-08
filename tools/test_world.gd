@@ -1,0 +1,12 @@
+extends SceneTree
+func _initialize(): call_deferred("_run")
+func _run():
+	Main.attract_mode=false; Main.save_slot=-1; Main.debug_start_level=13
+	var t0=Time.get_ticks_msec()
+	var m=load("res://Main.tscn").instantiate(); get_root().add_child(m)
+	for i in range(60): await physics_frame
+	m.start_delay=0.0; m.fade_alpha=0.0
+	for i in range(30): await physics_frame
+	var t1=Time.get_ticks_msec()
+	print("file=%d loaded+ran90f in %dms  on_floor=%s pos=(%.0f,%.0f) terrain=%d enemies=%d bounds=(%.0f..%.0f,%.0f..%.0f)" % [m._level_file,(t1-t0),str(m.player.grounded),m.player.global_position.x,m.player.global_position.y,m.terrain.get_used_cells().size(),m.enemies.size(),m.lvl_left,m.lvl_right,m.lvl_top,m.lvl_bottom])
+	quit()

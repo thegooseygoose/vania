@@ -13,3 +13,7 @@ Thumbs.db
 # scratch preview/verify renders written by tools scripts
 tools/_*.png
 tools/_*.png.import
+
+# scratch verify screenshots + level backups (dev-only, not part of the game)
+_shots/
+*.bak.tscn

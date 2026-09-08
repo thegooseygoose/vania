@@ -21,7 +21,8 @@ const CAM_SMOOTH := 8.0
 # Horizontal room-camera pan speed (higher = tighter follow within a room, lower = floatier
 # scroll between rooms). Eased so crossing a door glides to the next segment.
 const CAM_ROOM_PAN := 14.0
-const CAM_ROOM_SLOW := 1.6      # slow, deliberate scroll when crossing a door into the next room
+const ROOM_SCROLL := 130.0      # CONSTANT scroll speed (px/s) when crossing into a new room — a steady
+								# dolly reads far smoother than an exponential lerp (no fast-start jerk)
 const FIXED_V_ROOMS := [1]      # sections whose vertical camera NEVER moves up (a pinned ground view)
 const LOCKED_V_ROOMS := [2]     # sections that don't pan up on a jump but re-frame when you land
 const ROOM_LEVELS := [28]       # levels that use the METROIDVANIA room/section camera. Everything else
@@ -127,6 +128,7 @@ const LEVEL9_SCENE := preload("res://Level9.tscn")  # 1-9 (LEVEL F: overclock/ti
 const LEVEL10_SCENE := preload("res://Level10.tscn")  # 1-10 (LEVEL G: hover-jets showcase)
 const LEVEL11_SCENE := preload("res://Level11.tscn")  # 1-11 (LEVEL H: all-new-powers test/showcase)
 const LEVEL28_SCENE := preload("res://Level28.tscn")  # LEVEL Z: blank sandbox (40-tile floor) to build a new level
+const LEVEL29_SCENE := preload("res://Level29.tscn")  # BRINSTAR: the Metroid opening region (start room + shaft), being built out
 const SOURCE_ID := 0
 
 # =========================================================================
@@ -149,6 +151,7 @@ const LEVEL_ORDER := [
 	[26, "1-10"], # LEVEL G: hover-jets showcase
 	[27, "1-11"], # LEVEL H: all-new-powers test/showcase
 	[28, "Z"],    # LEVEL Z: blank sandbox to build a new level
+	[29, "BR"],   # BRINSTAR: the Metroid world, opening region (built region by region)
 ]
 # per-FILE geometry (intrinsic to each level's layout, keyed by scene file #):
 #   lw = width in tiles, flag/castle = flagpole & castle columns, dark = black bg,
@@ -166,6 +169,7 @@ const LEVEL_GEOMETRY := {
 	26: {"lw": 80, "flag": 74, "castle": 76, "dark": false, "under": false, "noflag": true},   # Vania 1-10 LEVEL G hover showcase
 	27: {"lw": 96, "flag": 90, "castle": 92, "dark": false, "under": false, "noflag": true},   # Vania 1-11 LEVEL H all-new-powers test
 	28: {"lw": 40, "flag": 34, "castle": 36, "dark": false, "under": false, "noflag": true},   # LEVEL Z: blank sandbox (40-tile floor)
+	29: {"lw": 480, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # METROID WORLD: full-size map from meto.png
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
 	6: {"lw": 200, "flag": 192, "castle": 195, "dark": false, "under": false},
@@ -265,7 +269,7 @@ var timing := true             # false once the flagpole is touched (freezes ela
 var game_state := "play"        # play | clear
 var saved_tier := "big"         # Vania: Mario STARTS as big/mushroom Mario (not small, not fire)
 var level_num := 1              # 1 = world 1-1, 2 = world 1-2
-const LEVEL_COUNT := 12         # 1-1 … 1-11, then LEVEL Z
+const LEVEL_COUNT := 13         # 1-1 … 1-11, LEVEL Z, then BRINSTAR
 static var debug_start_level := 1   # DEBUG: level the intro's stage-select boots into
 static var selected_char := "mario"  # character picked at the intro: "mario" or "kamen" (mask on Mario)
 
@@ -837,7 +841,9 @@ func _ready() -> void:
 ## actor node checks this in its _physics_process, and the clock + gameplay updates below
 ## are skipped while it's true.
 func actors_frozen() -> bool:
-	return player != null and (player.transforming or player.dead)
+	# _cam_lock: after a door walk, hold everything (enemies, clock, collisions) while the camera
+	# scrolls to settle into the new room — _update_camera still runs and clears the lock on arrival.
+	return _cam_lock or (player != null and (player.transforming or player.dead))
 
 func _physics_process(delta: float) -> void:
 	if paused:
@@ -995,6 +1001,8 @@ func _physics_process(delta: float) -> void:
 # LEVEL SCENE (Level1.tscn — TileMapLayer terrain + Spawns markers)
 # =========================================================================
 func _scene_for_file(f: int) -> PackedScene:
+	if f == 29:
+		return LEVEL29_SCENE
 	if f == 28:
 		return LEVEL28_SCENE
 	if f == 27:
@@ -1209,17 +1217,33 @@ func _build_pipeover_collision() -> void:
 	add_child(body)
 	_pipeover_body = body
 
+# Fallback spawn when a level has no PlayerStart node/tile: the first floor cell (a solid cell with
+# 2 empty cells above it) scanning top-left; feet rest on its top. Prevents a missing-start crash.
+func _default_start() -> Vector2:
+	if terrain:
+		for c in terrain.get_used_cells():
+			if terrain.get_cell_source_id(Vector2i(c.x, c.y - 1)) < 0 and terrain.get_cell_source_id(Vector2i(c.x, c.y - 2)) < 0:
+				return Vector2(c.x * TILE + TILE / 2.0, c.y * TILE)
+	return Vector2(TILE * 2 + TILE / 2.0, TILE * 3)
+
 func _read_spawns() -> void:
 	_enemy_defs.clear()
 	_coin_defs.clear()
 	_barrel_spawner_defs.clear()
 	sign_cells.clear()
-	var spawns = level.get_node("Spawns")
-	_player_start = spawns.get_node("PlayerStart").position
-	for m in spawns.get_node("Enemies").get_children():
-		_enemy_defs.append({"pos": m.position, "type": m.get_meta("type")})
-	for m in spawns.get_node("Coins").get_children():
-		_coin_defs.append(m.position)
+	var spawns = level.get_node_or_null("Spawns")
+	# PlayerStart may be missing (deleted in the editor) — don't crash; fall back to a floor cell.
+	# A painted START tile (atlas 18) still overrides this later.
+	var pstart = spawns.get_node_or_null("PlayerStart") if spawns else null
+	_player_start = pstart.position if pstart else _default_start()
+	var enemies_node = spawns.get_node_or_null("Enemies") if spawns else null
+	if enemies_node:
+		for m in enemies_node.get_children():
+			_enemy_defs.append({"pos": m.position, "type": m.get_meta("type")})
+	var coins_node = spawns.get_node_or_null("Coins") if spawns else null
+	if coins_node:
+		for m in coins_node.get_children():
+			_coin_defs.append(m.position)
 	# painted enemy tiles (Level2 "EnemyTiles" layer): goomba @ atlas x0, koopa @ x1.
 	# Paint on the row whose bottom rests on the ground; the icons are editor-only.
 	var etiles = level.get_node_or_null("EnemyTiles")
@@ -1257,6 +1281,8 @@ func _read_spawns() -> void:
 				26: etype = "door_left"                     # door.png: left half-circle (boomerang-shootable)
 				27: etype = "door_mid"                      # door.png: centre panel (walk-behind, no collision)
 				28: etype = "door_right"                    # door.png: right half-circle (boomerang-shootable)
+				29: etype = "bug"                           # flying bug: rises to head height, then chases you
+				30: etype = "metroid"                       # floating Metroid boss: slow homing float, SHOT-only, many hits
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1598,6 +1624,24 @@ func _spawn_enemies() -> void:
 			sp.spawn(d["pos"])
 			enemies.append(sp)
 			continue
+		# Bug: a flyer — rises to the player's head height, then chases. Own kind (no gravity/patrol).
+		if t == "bug":
+			var bg = Enemy.new()
+			bg.main = self
+			bg.kind = "bug"
+			add_child(bg)
+			bg.spawn(d["pos"])
+			enemies.append(bg)
+			continue
+		# Metroid boss: a floating creature that slowly homes onto you. SHOT-only, many hits.
+		if t == "metroid":
+			var mt = Enemy.new()
+			mt.main = self
+			mt.kind = "metroid"
+			add_child(mt)
+			mt.spawn(d["pos"])
+			enemies.append(mt)
+			continue
 		var e = Enemy.new()
 		e.main = self
 		# "purple_goomba" / "purple_koopa" share the base kind's physics + stomp
@@ -1645,6 +1689,9 @@ var door_parts: Array = []      # DoorPart parts — the shot hits these (halves
 var door_pairs: Array = []      # [LEFT, RIGHT] half pairs of each door (Metroid walk-through transition)
 var _door_walk_pair = null      # the door pair Mario is currently auto-walking through (null = none)
 var _door_walk_dir := 0         # which way he's walking through it (+1 right, -1 left)
+var _door_cam_hold := 0.0       # camera HOLDS on the current room this long before scrolling to the next
+const DOOR_CAM_HOLD := 0.65      # seconds to linger on the sector you entered from before the shift
+var _cam_lock := false          # after a door walk: freeze Mario + enemies until the camera settles into the new room
 var bikes: Array = []           # Bike nodes (press the bike button near one to mount)
 
 # Vania: erase the painted stand-in flagpole (atlas 5 base + 6 pole) and house
@@ -1723,6 +1770,7 @@ var _ground_cam_y := 0.0         # vertical camera height while grounded (held i
 func _build_segments() -> void:
 	_segments.clear()
 	_cam_seg = []                # new level / re-pair: snap the camera into the starting room
+	_cam_lock = false            # never carry a settle-freeze across a level load / re-pair
 	var bounds := [lvl_left, lvl_right]
 	for pair in door_pairs:
 		var L = pair[0]
@@ -1739,6 +1787,12 @@ func _segment_for(x: float) -> Array:
 		if x >= seg[0] and x < seg[1]:
 			return seg
 	return [lvl_left, lvl_right]
+
+# the camera's target cam_x for framing a segment: centre a small room, else scroll within it
+func _seg_target(seg: Array) -> float:
+	if seg[1] - seg[0] <= float(VIEW_W):
+		return (seg[0] + seg[1]) / 2.0 - float(VIEW_W) / 2.0
+	return clampf(player.global_position.x - VIEW_W / 2.0, seg[0], seg[1] - float(VIEW_W))
 
 # which room (section) the player is in, 1-based (for the HUD)
 func current_section() -> int:
@@ -1789,6 +1843,7 @@ func _update_doors() -> void:
 func _start_door_walk(pair, d: int) -> void:
 	_door_walk_pair = pair
 	_door_walk_dir = d
+	_door_cam_hold = DOOR_CAM_HOLD   # linger on this sector before the camera scrolls to the next
 	player.door_walk = d
 
 # Auto-walk transition: open the FAR half as Mario reaches it, then CLOSE both behind him and release.
@@ -1819,9 +1874,13 @@ func _drive_door_walk() -> void:
 func _end_door_walk() -> void:
 	if player:
 		player.door_walk = 0
-		_cam_seg = _segment_for(player.global_position.x)   # settle in the room we walked into (no re-pan)
+	# Leave _cam_seg as the room we CAME from: the normal camera then keeps scrolling (at ROOM_SCROLL,
+	# same steady speed as during the walk) toward the new room until it catches up — seamless.
 	_door_walk_pair = null
 	_door_walk_dir = 0
+	# Freeze Mario + enemies until that scroll SETTLES into the new room (cleared in _update_camera on
+	# arrival) — nothing moves until the camera has finished framing the room you walked into.
+	_cam_lock = true
 
 
 const _ABILITY_KEYS := ["double_jump", "break", "morph", "walljump", "grapple", "boomerang", "waterwalk"]
@@ -2342,55 +2401,16 @@ func _update_gameplay_collisions() -> void:
 				player.hurt()
 				break
 
-	# player vs enemies
+	# player vs enemies — METROID rules: there is NO stomping. ANY contact with any enemy hurts the
+	# PLAYER, never the enemy. Enemies are killed only by weapons (the shot/boomerang, dash, rider-kick,
+	# fireball) — each handled in its own loop. hurt() itself no-ops while dashing / rider-kicking /
+	# invulnerable, so those attacks stay safe on contact.
 	for e in enemies:
 		if not e.active or e.dead:
 			continue
 		if not pr.intersects(e.get_rect()):
 			continue
-		var stomping: bool = player.velocity.y > 0 and (pr.position.y + pr.size.y) - e.get_rect().position.y < 12
-		if e.kind == "piranha":
-			player.hurt()          # piranha plant can't be stomped — any touch hurts
-			continue
-		if e.kind == "zoomer":
-			player.hurt()          # Zoomer: any touch hurts (stomping it does NOT kill) — only the boomerang kills it
-			continue
-		if e.kind == "koopa" and e.shell and not e.shell_moving:
-			# a still shell gets kicked away from you on any touch — but not during the
-			# brief grace after it was made/stopped (that would re-trigger on one overlap)
-			if e.shell_cd <= 0.0:
-				e.shell_moving = true
-				e.dir = 1 if player.global_position.x < e.global_position.x else -1
-				e.velocity.x = e.dir * 200.0
-				e.shell_cd = 0.1
-				player.invuln = 0.1
-				sfx("kick")
-			continue
-		if e.kind == "koopa" and e.shell and e.shell_moving:
-			if stomping:
-				# landing on a sliding shell stops it (SMB1) — but only once it's clear of
-				# the kick that started it, so a single overlap can't oscillate it stop/go
-				if e.shell_cd <= 0.0:
-					e.shell_moving = false
-					e.velocity.x = 0
-					e.shell_cd = 0.1
-					sfx("stomp")
-				player.bounce()          # bounce off the top either way (stop, or grace)
-			else:
-				player.hurt()
-			continue
-		if stomping:
-			if e.kind == "goomba" or e.kind == "hammerbro":
-				e.squish()          # goomba flattens; hammer bro topples and dies
-			elif e.kind == "serp":
-				e.knock_out(1 if player.global_position.x < e.global_position.x else -1)  # snail flips off and dies
-			else:
-				e.to_shell()
-			player.bounce()
-			score += 100
-			sfx("stomp")
-		else:
-			player.hurt()
+		player.hurt()
 
 	# moving shell vs other enemies
 	for e in enemies:
@@ -2800,30 +2820,39 @@ func _update_camera() -> void:
 	if not rooms:
 		# plain FREE camera: follow both ways, clamped to the whole painted level
 		cam_x = clampf(player.global_position.x - VIEW_W / 2.0, lvl_left, maxf(lvl_left, lvl_right - float(VIEW_W)))
+		_cam_lock = false
 	elif _door_walk_pair != null:
-		# during the door cutscene: pan smoothly WITH Mario through the doorway (no room-edge clamp),
-		# so the scroll into the next room is one continuous glide (no pin-then-jump jerk).
-		var tgt: float = clampf(player.global_position.x - VIEW_W / 2.0, lvl_left, maxf(lvl_left, lvl_right - float(VIEW_W)))
-		cam_x = lerp(cam_x, tgt, clampf(CAM_ROOM_SLOW * get_physics_process_delta_time(), 0.0, 1.0))
+		# door cutscene. First HOLD on the sector you entered from (linger a beat), THEN glide smoothly
+		# with Mario into the next room — one continuous scroll (no pin-then-jump jerk).
+		if _door_cam_hold > 0.0:
+			_door_cam_hold -= get_physics_process_delta_time()
+			# keep framing the room he came from (clamp to its bounds), don't scroll yet
+			var s0: Array = _segment_for(player.global_position.x - float(_door_walk_dir) * 24.0)
+			cam_x = clampf(cam_x, s0[0], maxf(s0[0], s0[1] - float(VIEW_W)))
+		else:
+			# glide toward the DESTINATION room's framing (stable target), so the handoff to the
+			# normal camera when control returns is seamless — same target, same easing speed.
+			var far_dp = _door_walk_pair[1] if _door_walk_dir > 0 else _door_walk_pair[0]
+			var dseg: Array = _segment_for(far_dp.global_position.x + float(_door_walk_dir) * 6.0)
+			cam_x = move_toward(cam_x, _seg_target(dseg), ROOM_SCROLL * get_physics_process_delta_time())
 	else:
 		var seg: Array = _segment_for(player.global_position.x) if not _segments.is_empty() else [lvl_left, lvl_right]
-		var seg_l: float = seg[0]
-		var seg_r: float = seg[1]
-		var target_x: float
-		if seg_r - seg_l <= float(VIEW_W):
-			target_x = (seg_l + seg_r) / 2.0 - float(VIEW_W) / 2.0     # single-screen room: centre it
-		else:
-			target_x = clampf(player.global_position.x - VIEW_W / 2.0, seg_l, seg_r - float(VIEW_W))
+		var target_x: float = _seg_target(seg)
 		if _cam_seg.is_empty():
 			_cam_seg = seg                                            # level start: snap, don't slow-pan in
 			cam_x = target_x
+			_cam_lock = false
 		else:
-			# SLOW pan while crossing into a new room (the Metroid room scroll); tight follow within a room
-			var transitioning: bool = (_cam_seg != seg)
-			var pan: float = CAM_ROOM_SLOW if transitioning else CAM_ROOM_PAN
-			cam_x = lerp(cam_x, target_x, clampf(pan * get_physics_process_delta_time(), 0.0, 1.0))
-			if transitioning and absf(cam_x - target_x) < 2.0:
-				_cam_seg = seg                                        # arrived in the new room
+			# crossing into a new room: STEADY constant-speed scroll (Metroid dolly). Within a room:
+			# tight eased follow.
+			if _cam_seg != seg:
+				cam_x = move_toward(cam_x, target_x, ROOM_SCROLL * get_physics_process_delta_time())
+				if absf(cam_x - target_x) < 1.0:
+					_cam_seg = seg                                    # arrived in the new room
+					_cam_lock = false                                 # camera settled — release Mario + enemies
+			else:
+				cam_x = lerp(cam_x, target_x, clampf(CAM_ROOM_PAN * get_physics_process_delta_time(), 0.0, 1.0))
+				_cam_lock = false                                     # already framing this room, nothing to settle
 	# Vertical target, then EASE cam_y toward it so climbing glides instead of
 	# snapping frame-to-frame with every jump/step.
 	var target_y: float = clampf(player.global_position.y - CAM_UP_TRIGGER, lvl_top, maxf(lvl_top, lvl_bottom - float(VIEW_H)))
@@ -5084,6 +5113,10 @@ func _load_textures() -> void:
 		"zoomer0": "enemies/zoomer0", "zoomer1": "enemies/zoomer1",
 		# Serp (snail, serp.png): 1 frame, crawls very slowly
 		"serp": "enemies/serp",
+		# Bug (flyer): 2-frame wing flap
+		"bug0": "enemies/bug0", "bug1": "enemies/bug1",
+		# Metroid boss (floater): 2-frame pulse
+		"metroid0": "enemies/metroid0", "metroid1": "enemies/metroid1",
 		"koopa1": "enemies/koopa_walk1", "koopa2": "enemies/koopa_walk2",
 		"koopa_shell": "enemies/koopa_shell",
 		"shell_left": "enemies/shell_left", "shell_right1": "enemies/shell_right1",

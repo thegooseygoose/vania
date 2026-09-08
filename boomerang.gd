@@ -154,10 +154,26 @@ func _solid_wall_at(pos: Vector2) -> bool:
 
 
 func _draw() -> void:
-	# NEW BOOM (bullet) test look — drawn centred, no spin. Old crescent spin kept below.
-	if USE_NEW_BOOM and _bullet_tex != null:
-		var bsz: Vector2 = _bullet_tex.get_size()
-		draw_texture_rect(_bullet_tex, Rect2(-bsz * 0.5, bsz), false)
+	# NEW BOOM (bullet): a procedural glowing ENERGY BOLT — white-hot core, electric-blue aura,
+	# and a fading motion trail behind it. Reads far better than the old 2px dot and fits the
+	# cyberpunk look. (Old crescent-spin boomerang art kept below the flag.)
+	if USE_NEW_BOOM:
+		var d := float(dir)
+		var flick := 0.82 + 0.18 * sin(t * 42.0)              # subtle energy flicker
+		var glow := Color(0.25, 0.7, 1.0, 1.0)                # electric blue (stands out on green/navy)
+		# soft outer glow
+		draw_circle(Vector2.ZERO, 6.0, Color(glow.r, glow.g, glow.b, 0.14 * flick))
+		draw_circle(Vector2.ZERO, 4.0, Color(glow.r, glow.g, glow.b, 0.30 * flick))
+		# motion trail — overlapping discs streaming out BEHIND the head, thinning + fading
+		for i in range(6):
+			var fx := float(i)
+			var px := -d * (2.0 + fx * 2.3)
+			var rad := maxf(0.6, 2.8 - fx * 0.45)
+			var a := clampf((0.75 - fx * 0.12) * flick, 0.0, 1.0)
+			draw_circle(Vector2(px, 0.0), rad, Color(0.45, 0.85, 1.0, a))
+		# hot core at the head (bright cyan-white → pure white centre)
+		draw_circle(Vector2(d * 1.6, 0.0), 2.6, Color(0.8, 0.97, 1.0, 0.95))
+		draw_circle(Vector2(d * 1.6, 0.0), 1.4, Color(1.0, 1.0, 1.0, 1.0))
 		return
 	if _frames.is_empty():
 		return

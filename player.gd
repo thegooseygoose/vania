@@ -48,6 +48,7 @@ var has_morph := false          # CIRCLE: press Down on the ground to become a m
 var has_walljump := false       # DIAMOND: slide down walls and leap off them
 var has_grapple := false        # STAR: shoot X near a grab point to zip up to it
 var has_boomerang := false      # BOOMERANG: press X to throw a returning boomerang
+const SHOT_RECOIL := 55.0       # firing the SHOT kicks the shooter back a bit (opposite facing)
 var has_waterwalk := false      # W: walk on top of water (it becomes solid footing; no sink/slow)
 var has_dash := false            # DASH: press Dash (F / controller LB) to lunge forward, smashing enemies + brittle blocks
 var dashing := false
@@ -173,12 +174,13 @@ const SHRINK_FRAME := ["shrink4", "shrink1"]        # 0 small (D), 1 big (A)
 var invuln := 0.0
 var hurt_lock := 0.0             # brief control lock after a hit so the knockback shove reads
 var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
-const DOOR_WALK_SPEED := 0.5    # fraction of walk speed for the door cutscene stroll (lower = slower)
+const DOOR_WALK_SPEED := 0.7    # fraction of walk speed for the door cutscene stroll (lower = slower)
 const HURT_KNOCK_X := 150.0      # horizontal knockback (shoved opposite to facing)
 const HURT_KNOCK_UP := -200.0    # upward pop on a hit
 const HURT_LOCK_TIME := 0.3      # seconds movement input is ignored after a hit
-const MAX_HEARTS := 5
-var hearts := MAX_HEARTS         # health: each hit costs one; death at 0. Reset to full on spawn.
+const MAX_HP := 100              # numeric health: starts at 100
+const HP_PER_HIT := 10           # each hit costs 10; death at 0
+var hp := MAX_HP                 # current health (0..100). Reset to full on spawn.
 var jump_held := false
 var was_rising := false
 var grounded := false            # is_on_floor() OR a foot resting over a 1-tile gap (SMB1)
@@ -396,7 +398,7 @@ func spawn(feet_pos: Vector2) -> void:
 		sprite.rotation = 0.0           # clear any leftover morph-ball roll (reset while rolling)
 		sprite.visible = true           # clear any leftover invuln-flash blink
 	_water_split = false                # no split-tint until the next in-water frame
-	hearts = MAX_HEARTS                 # full health at the start of every life
+	hp = MAX_HP                         # full health at the start of every life
 	set_collision_mask_value(1, true)   # kill() clears this to fall through the world;
 										# restore it so a mid-death restart/warp doesn't
 										# spawn Mario falling straight through the floor
@@ -438,6 +440,8 @@ func _physics_process(delta: float) -> void:
 		return   # 3-4 boss-arena intro — main walks Mario in, then drops the block wall
 	if main.start_delay > 0.0:
 		return   # frozen during the brief stage-start "get ready" (Mario can't move yet)
+	if main._cam_lock:
+		return   # camera still settling into the new room after a door walk — hold Mario until it arrives
 	if transforming:
 		_update_transform(delta)
 		return
@@ -608,6 +612,7 @@ func _update_alive(delta: float) -> void:
 			and (Input.is_action_just_pressed("boomerang") \
 				or (not grappling and not extending and Input.is_action_just_pressed("shoot"))):
 		boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
+		velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back a little
 		main.sfx("fireball")
 
 	if wall_lock > 0.0:
@@ -923,6 +928,7 @@ func _exit_morph() -> bool:
 
 
 const MORPH_SPEED := 1.5          # morph ball rolls 1.5x normal move speed
+var _ball_bounced := false       # true after a drop's ONE bounce, until the ball settles again
 const BALL_BOUNCE_MIN := 100.0   # only bounce when landing faster than this (a real drop, not a step)
 const BALL_BOUNCE_FACTOR := 1.0  # bounce keeps this fraction of the impact speed (1.0 = ~2x the old hop)
 const BALL_BOUNCE_MAX := 280.0   # cap on the bounce speed
@@ -941,18 +947,23 @@ func _morph_physics(delta: float, on_floor: bool) -> void:
 		velocity.x = move_toward(velocity.x, 0.0, main.FRICTION * delta)
 	var g: float = main.GRAVITY * (main.FALL_GRAV_SCALE if velocity.y >= 0.0 else 1.0)
 	velocity.y = minf(velocity.y + g * delta, main.MAX_FALL)
-	# stand back up (Up or Jump), if there's room
+	# stand back up (Up or Jump), if there's room. Pressing jump just STANDS UP — it does NOT jump
+	# out of the ball; jump_held blocks the held-jump from firing a jump the frame after standing.
 	if Input.is_action_just_pressed("jump") or Input.is_action_just_pressed("move_up"):
 		if _exit_morph():
+			jump_held = true
 			return
 	var was_air := not is_on_floor()
 	var vy_impact := velocity.y                # downward speed at the moment of landing
 	move_and_slide()
-	# METROID morph-ball bounce: dropping onto the ground pops back up a little, then bounces
-	# a few diminishing times before it settles.
-	if is_on_floor() and was_air and vy_impact > BALL_BOUNCE_MIN:
-		velocity.y = -minf(vy_impact * BALL_BOUNCE_FACTOR, BALL_BOUNCE_MAX)
-		main.sfx("bump")
+	# METROID morph-ball bounce: a drop pops back up ONCE, then settles (no repeated bouncing).
+	if is_on_floor():
+		if was_air and vy_impact > BALL_BOUNCE_MIN and not _ball_bounced:
+			velocity.y = -minf(vy_impact * BALL_BOUNCE_FACTOR, BALL_BOUNCE_MAX)
+			_ball_bounced = true
+			main.sfx("bump")
+		elif velocity.y >= -1.0:
+			_ball_bounced = false              # settled on the ground → ready for the next drop's bounce
 	# roll the ball in the travel direction
 	sprite.texture = _ball_tex
 	sprite.position = Vector2(0, -1)   # morph ball sits 1px higher
@@ -1497,12 +1508,12 @@ func _update_transform(delta: float) -> void:
 		_animate()
 
 func hurt() -> void:
-	if invuln > 0.0 or dead or transforming or dashing:
-		return  # dashing = invulnerable (you plough through enemies, they die, you don't)
-	# 5-heart health: every hit costs one heart; at 0 you die. (Fire power is kept until death.)
-	hearts -= 1
-	if hearts <= 0:
-		hearts = 0
+	if invuln > 0.0 or dead or transforming or dashing or riderkicking:
+		return  # dashing / rider-kicking = invulnerable attacks (you kill on contact, take no damage)
+	# numeric health: every hit costs HP_PER_HIT (10); at 0 you die. (Fire power is kept until death.)
+	hp -= HP_PER_HIT
+	if hp <= 0:
+		hp = 0
 		kill()
 		return
 	invuln = 1.5
@@ -1574,14 +1585,22 @@ func _spawn_death_explosion() -> void:
 # just stroll at walk speed in `door_walk`, keep gravity so he stays on the floor.
 func _door_walk_physics(delta: float) -> void:
 	facing = door_walk
-	# EASE into the stroll speed (don't snap from run/walk speed → smooth entry, no jerk)
+	# EASE into the stroll speed (don't snap from run/walk speed → smooth entry, no jerk).
+	# Keep strolling the WHOLE transition (through the camera hold too) — never pause at the door.
 	var target_vx: float = float(door_walk) * main.WALK_MAX * DOOR_WALK_SPEED
 	velocity.x = move_toward(velocity.x, target_vx, main.WALK_ACC * delta)
 	velocity.y = minf(velocity.y + main.GRAVITY * delta, main.MAX_FALL)
 	move_and_slide()
 	grounded = is_on_floor()
-	walk_anim += absf(velocity.x) * delta * 0.25
-	_animate()
+	if morphed:
+		# rolled into the door as a ball → stay a rolling ball through the transition
+		# (don't pop into the walk animation)
+		sprite.texture = _ball_tex
+		sprite.position = Vector2(0, -1)
+		sprite.rotation += velocity.x * delta * 0.14
+	else:
+		walk_anim += absf(velocity.x) * delta * 0.25
+		_animate()
 
 func _update_dead(delta: float) -> void:
 	dead_timer += delta
