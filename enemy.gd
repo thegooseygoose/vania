@@ -38,6 +38,9 @@ const SERP_SIZE := Vector2(16, 20)  # ~ the 21px sprite so landing on it stomps 
 const VIRUS_SIZE := Vector2(20, 22) # Virus: goomba-like walker; box ~ its 29x27 sprite (overhangs a touch)
 var serp_hp := 3                # Serp takes 3 SHOTS to kill (flashes on each hit)
 var virus_hp := 10              # Virus takes 10 SHOTS to kill (flashes on each hit)
+var turret_hp := 5              # Ceiling Turret takes 5 SHOTS to kill (flashes on each hit)
+const TURRET_SIZE := Vector2(14, 14)   # ceiling gunner: compact box (contact hurts the player)
+const TURRET_FIRE := 0.5        # Turret: fires a shot straight AT the player every half second
 var melting := false            # Virus death: it MELTS (flatten + spread + sink + fade) instead of flipping off
 var melt_t := 0.0
 var _melt_base_y := 0.0
@@ -143,6 +146,14 @@ func spawn(feet_pos: Vector2) -> void:
 		global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)   # floats from where it's painted
 		_animate()
 		return
+	if kind == "turret":
+		rect.size = TURRET_SIZE
+		# CLING TO THE CEILING: sprite top flush with the top of the painted cell (hangs down from
+		# the block above). Paint the turret tile on the empty cell just below a ceiling block.
+		var cell_top: float = feet_pos.y - main.TILE
+		global_position = Vector2(feet_pos.x, cell_top + rect.size.y / 2.0)
+		_animate()
+		return
 	rect.size = VIRUS_SIZE if kind == "virus" else (SERP_SIZE if kind == "serp" else (KOOPA if kind == "koopa" else GOOMBA))
 	dir = -1
 	global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)
@@ -216,6 +227,23 @@ func _physics_process(delta: float) -> void:
 		_metroid_move(delta)
 		return
 
+	# Turret: clings to the ceiling, never moves; fires a shot straight DOWN every 0.5s.
+	if kind == "turret":
+		velocity = Vector2.ZERO
+		if _on_screen() and is_instance_valid(main.player) and not main.player.dead:
+			fire_timer += delta
+			if fire_timer >= TURRET_FIRE:
+				fire_timer = 0.0
+				var muzzle := global_position + Vector2(0.0, rect.size.y * 0.5)   # barrel at its underside
+				main.enemy_shoot_at(muzzle, muzzle + Vector2(0.0, 32.0))          # straight down
+		_animate()
+		if _flash_t > 0.0:
+			_flash_t -= delta
+			sprite.modulate = Color(3.0, 3.0, 3.0)
+		else:
+			sprite.modulate = Color.WHITE
+		return
+
 	# horizontal patrol
 	var spd: float = 0.0 if (shell and not shell_moving) else absf(velocity.x)
 	if shell and not shell_moving:
@@ -265,7 +293,7 @@ func _physics_process(delta: float) -> void:
 				to_player = dir
 			main.enemy_shoot_fireball(global_position, to_player)
 
-	# Virus: spit a projectile toward the player every 2s, while on-screen
+	# Virus: spit a HORIZONTAL projectile toward the player's side, while on-screen
 	if kind == "virus" and _on_screen():
 		fire_timer += delta
 		if fire_timer >= VIRUS_FIRE_INTERVAL:
@@ -273,7 +301,7 @@ func _physics_process(delta: float) -> void:
 			var tp := signi(main.player.global_position.x - global_position.x)
 			if tp == 0:
 				tp = dir
-			main.enemy_shoot_fireball(global_position, tp)
+			main.enemy_shoot_fireball(global_position, tp, true)   # true = straight/horizontal
 
 	if kind == "koopa" and shell:
 		_update_shell(delta)
@@ -374,6 +402,10 @@ func _animate() -> void:
 		# 2-frame wing flap; art is symmetric, flip toward travel
 		_frame(_t("bug1") if int(bug_bob_t * 12.0) % 2 else _t("bug0"), dir < 0)
 		return
+	if kind == "turret":
+		# 2-frame idle pulse (eye/muzzle glow); symmetric, no flip
+		_frame(_t("turret1") if (t / 260) % 2 else _t("turret0"), false)
+		return
 	if kind == "metroid":
 		# 2-frame pulse, drawn CENTRED on the body (not feet-aligned like _frame)
 		sprite.flip_v = false
@@ -468,7 +500,7 @@ func flip_stun() -> void:
 func knock_out(hit_dir := 1) -> void:
 	# Zoomers AND the Metroid boss shrug off every generic kill (stomp/dash/rider-kick/fireball/
 	# sliding shell all route through knock_out) — ONLY the boomerang/SHOT hurts them (boomerang_kill).
-	if kind == "zoomer" or kind == "metroid":
+	if kind == "zoomer" or kind == "metroid" or kind == "turret":
 		return
 	_do_knock_out(hit_dir)
 
@@ -495,6 +527,13 @@ func boomerang_kill(hit_dir := 1) -> void:
 		if virus_hp <= 0:
 			_do_knock_out(hit_dir)
 		return
+	if kind == "turret":
+		# Ceiling Turret: 5 shots to kill, flashing white on each hit
+		turret_hp -= 1
+		_flash_t = 0.16
+		if turret_hp <= 0:
+			_do_knock_out(hit_dir)
+		return
 	_do_knock_out(hit_dir)
 
 func _do_knock_out(hit_dir := 1) -> void:
@@ -509,8 +548,8 @@ func _do_knock_out(hit_dir := 1) -> void:
 		velocity = Vector2.ZERO
 		_melt_base_y = sprite.position.y
 		return
-	# Zoomer, Serp & the Metroid boss: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
-	if kind == "zoomer" or kind == "serp" or kind == "metroid":
+	# Zoomer, Serp, Metroid boss & the Turret: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
+	if kind == "zoomer" or kind == "serp" or kind == "metroid" or kind == "turret":
 		_spawn_explosion()
 		dead = true
 		squished = false

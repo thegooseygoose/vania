@@ -10,6 +10,7 @@ var dead := false
 var burst := false             # died on impact (wall/enemy) -> spawn a 2x burst
 var enemy := false             # spat by a purple goomba -> hurts the player, not enemies
 var facing := 1                # travel direction (set at launch)
+var straight := false          # true = fly HORIZONTALLY (no arc/bounce/gravity) — the virus shot
 var life := 2.5
 var _anim := 0.0               # spin animation clock
 const SPIN_STEP := 4.0 / 60.0  # SMB1: fireball tile changes every 4 frames
@@ -41,7 +42,18 @@ func launch(pos: Vector2, dir: int) -> void:
 	global_position = pos
 	facing = dir
 	sprite.texture = main.tex["fball0"]
-	velocity = Vector2(dir * SPEED, 80.0)
+	velocity = Vector2(dir * SPEED, 0.0 if straight else 80.0)   # straight = level, else arc down
+
+# Aimed straight shot (no gravity/bounce): flies in a straight line toward `target`. Used by the
+# ceiling turret to fire directly AT the player at any angle.
+func launch_at(pos: Vector2, target: Vector2) -> void:
+	global_position = pos
+	straight = true
+	var v: Vector2 = (target - pos)
+	v = v.normalized() if v.length() > 0.001 else Vector2(1, 0)
+	facing = 1 if v.x >= 0.0 else -1
+	sprite.texture = main.tex["fball0"]
+	velocity = v * SPEED
 
 
 func _physics_process(delta: float) -> void:
@@ -50,11 +62,14 @@ func _physics_process(delta: float) -> void:
 	if dead:
 		return
 	life -= delta
-	velocity.y = minf(velocity.y + GRAV * delta, 400.0)
+	if not straight:
+		velocity.y = minf(velocity.y + GRAV * delta, 400.0)   # arcing shot: gravity + floor bounce
+	# (straight shots keep their launch velocity — no gravity — so they fly level or on their aim line)
 	move_and_slide()
-	if is_on_floor():
+	if not straight and is_on_floor():
 		velocity.y = BOUNCE
-	if is_on_wall():        # hit the side of a block -> burst
+	# straight shots die on ANY solid hit (floor/wall/ceiling); arcing shots burst on a wall
+	if is_on_wall() or (straight and get_slide_collision_count() > 0):
 		dead = true
 		burst = true
 	# spin: cycle the 4 frames, one every 4 game-frames (SMB1 tile-swap rate)

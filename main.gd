@@ -1295,6 +1295,7 @@ func _read_spawns() -> void:
 				29: etype = "bug"                           # flying bug: rises to head height, then chases you
 				30: etype = "metroid"                       # floating Metroid boss: slow homing float, SHOT-only, many hits
 				31: etype = "virus"                         # Virus: a walking ground enemy (goomba-like patrol)
+				35: etype = "turret"                        # ceiling turret: stationary, shoots at you every 0.5s
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1665,6 +1666,15 @@ func _spawn_enemies() -> void:
 			add_child(vr)
 			vr.spawn(d["pos"])
 			enemies.append(vr)
+			continue
+		# Turret: clings to a ceiling, stationary, shoots at the player every 0.5s. Shot-only.
+		if t == "turret":
+			var tu = Enemy.new()
+			tu.main = self
+			tu.kind = "turret"
+			add_child(tu)
+			tu.spawn(d["pos"])
+			enemies.append(tu)
 			continue
 		var e = Enemy.new()
 		e.main = self
@@ -2668,14 +2678,27 @@ func _update_fireballs() -> void:
 	fireballs = kept_fb
 
 
-func enemy_shoot_fireball(pos: Vector2, dir: int) -> void:
+func enemy_shoot_fireball(pos: Vector2, dir: int, straight: bool = false) -> void:
 	if enemy_fireballs.size() >= 3:      # keep the screen sane
 		return
 	var fb = Fireball.new()
 	fb.main = self
 	fb.enemy = true
+	fb.straight = straight               # virus: fly horizontally (no arc/bounce)
 	add_child(fb)
 	fb.launch(pos, dir)
+	enemy_fireballs.append(fb)
+	sfx("fireball")
+
+# Aimed enemy shot: a straight projectile fired directly AT `target` (the ceiling turret's attack).
+func enemy_shoot_at(pos: Vector2, target: Vector2) -> void:
+	if enemy_fireballs.size() >= 6:      # a few more than the ground shots, so a 0.5s turret keeps up
+		return
+	var fb = Fireball.new()
+	fb.main = self
+	fb.enemy = true
+	add_child(fb)
+	fb.launch_at(pos, target)
 	enemy_fireballs.append(fb)
 	sfx("fireball")
 
@@ -5298,6 +5321,8 @@ func _load_textures() -> void:
 		"metroid0": "enemies/metroid0", "metroid1": "enemies/metroid1",
 		# Virus (walking ground enemy): 2-frame walk
 		"virus0": "enemies/virus0", "virus1": "enemies/virus1",
+		# Turret (ceiling gunner): 2-frame idle (eye/barrel pulse)
+		"turret0": "enemies/turret0", "turret1": "enemies/turret1",
 		"koopa1": "enemies/koopa_walk1", "koopa2": "enemies/koopa_walk2",
 		"koopa_shell": "enemies/koopa_shell",
 		"shell_left": "enemies/shell_left", "shell_right1": "enemies/shell_right1",
