@@ -2235,7 +2235,7 @@ func collect_powerup(shape: String) -> void:
 		"timeslow": player.has_timeslow = true
 		"hover": player.has_hover = true
 	# Mario-style power-up get: freeze the whole world + pause the music while a jingle plays
-	powerup_freeze_t = 1.45
+	powerup_freeze_t = 2.85
 	if music_player:
 		music_player.stream_paused = true
 	sfx("fanfare")
@@ -5204,7 +5204,7 @@ func sfx(name: String) -> AudioStreamPlayer:
 		"jump_big": path = "res://audio/vania/jump sound.wav"     # same sound for big/fire jumps
 		"stomp": path = "res://audio/mario sound/stromp.wav"
 		"powerup": path = "res://audio/mario sound/power up collect.wav"
-		"fanfare": path = "res://audio/fanfare.wav"   # power-up-get jingle (world freezes while it plays)
+		"fanfare": path = "res://audio/fanfare_2x.wav"   # power-up-get jingle (2x length; world freezes while it plays)
 		"powerup_appear": path = "res://audio/mario sound/power up apear.wav"
 		"coin": path = "res://audio/mario sound/coin.mp3"
 		"brick": path = "res://audio/mario sound/break block.wav"
