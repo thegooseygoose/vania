@@ -2212,10 +2212,11 @@ func nearest_grab_point(from: Vector2, rng: float) -> Vector2:
 	return best
 
 
-func throw_boomerang(pos: Vector2, dir: int):
+func throw_boomerang(pos: Vector2, dir: int, up: bool = false):
 	var b = load("res://boomerang.gd").new()
 	b.main = self
 	b.dir = dir
+	b.aim = Vector2i(0, -1) if up else Vector2i(dir, 0)   # aim UP (d-pad up) or sideways
 	add_child(b)
 	b.global_position = pos
 	return b

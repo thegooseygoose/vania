@@ -4,6 +4,7 @@ extends Node2D
 
 var main
 var dir := 1
+var aim := Vector2i(1, 0)      # travel direction of the SHOT bullet: (±1,0) sideways or (0,-1) up
 var t := 0.0
 var returning := false
 const OUT_TIME := 0.64        # flies out longer → about twice the distance
@@ -90,7 +91,7 @@ func _physics_process(delta: float) -> void:
 		# then stop & despawn. (Also despawns off-screen / after BULLET_LIFE as a safety.)
 		var step: float = BULLET_SPEED * delta
 		step = minf(step, BULLET_RANGE - _bullet_traveled)   # don't overshoot the 64px range
-		global_position.x += dir * step
+		global_position += Vector2(aim) * step               # sideways OR up, per aim
 		_bullet_traveled += step
 		# blocked by a solid wall/block — it can't fly through terrain
 		if _solid_wall_at(global_position):
@@ -99,7 +100,9 @@ func _physics_process(delta: float) -> void:
 		if _bullet_traveled >= BULLET_RANGE \
 				or t > BULLET_LIFE \
 				or global_position.x < main.cam_x - 32.0 \
-				or global_position.x > main.cam_x + float(main.VIEW_W) + 32.0:
+				or global_position.x > main.cam_x + float(main.VIEW_W) + 32.0 \
+				or global_position.y < main.cam_y - 32.0 \
+				or global_position.y > main.cam_y + float(main.VIEW_H) + 32.0:
 			queue_free()
 			return
 	elif not returning:
@@ -158,7 +161,7 @@ func _draw() -> void:
 	# and a fading motion trail behind it. Reads far better than the old 2px dot and fits the
 	# cyberpunk look. (Old crescent-spin boomerang art kept below the flag.)
 	if USE_NEW_BOOM:
-		var d := float(dir)
+		var av := Vector2(aim)                                # travel direction (sideways or up)
 		var flick := 0.82 + 0.18 * sin(t * 42.0)              # subtle energy flicker
 		var glow := Color(0.25, 0.7, 1.0, 1.0)                # electric blue (stands out on green/navy)
 		# soft outer glow
@@ -167,13 +170,12 @@ func _draw() -> void:
 		# motion trail — overlapping discs streaming out BEHIND the head, thinning + fading
 		for i in range(6):
 			var fx := float(i)
-			var px := -d * (2.0 + fx * 2.3)
 			var rad := maxf(0.6, 2.8 - fx * 0.45)
 			var a := clampf((0.75 - fx * 0.12) * flick, 0.0, 1.0)
-			draw_circle(Vector2(px, 0.0), rad, Color(0.45, 0.85, 1.0, a))
+			draw_circle(av * -(2.0 + fx * 2.3), rad, Color(0.45, 0.85, 1.0, a))
 		# hot core at the head (bright cyan-white → pure white centre)
-		draw_circle(Vector2(d * 1.6, 0.0), 2.6, Color(0.8, 0.97, 1.0, 0.95))
-		draw_circle(Vector2(d * 1.6, 0.0), 1.4, Color(1.0, 1.0, 1.0, 1.0))
+		draw_circle(av * 1.6, 2.6, Color(0.8, 0.97, 1.0, 0.95))
+		draw_circle(av * 1.6, 1.4, Color(1.0, 1.0, 1.0, 1.0))
 		return
 	if _frames.is_empty():
 		return

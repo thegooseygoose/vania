@@ -231,7 +231,7 @@ func _ready() -> void:
 	# simple 3-frame characters (guy, grass): 2 walk + 1 jump, art faces RIGHT
 	for ch in SIMPLE_CHARS:
 		var frames := {}
-		for gk in ["walk1", "walk2", "jump"]:
+		for gk in ["walk1", "walk2", "jump", "up"]:   # "up" (e.g. guy_up.png) = optional aim-up pose
 			var gp := "res://sprites/player/%s_%s.png" % [ch, gk]
 			if ResourceLoader.exists(gp):
 				frames[gk] = load(gp)
@@ -614,9 +614,15 @@ func _update_alive(delta: float) -> void:
 	if has_boomerang and (boomerang == null or not is_instance_valid(boomerang)) \
 			and (Input.is_action_just_pressed("boomerang") \
 				or (not grappling and not extending and Input.is_action_just_pressed("shoot"))):
-		boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
-		velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back a little
-		velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
+		var aim_up := Input.is_action_pressed("move_up") and not Input.is_action_pressed("move_down")
+		if aim_up:
+			# fire UP: bullet leaves the top of his head, recoil shoves him DOWN a touch
+			boomerang = main.throw_boomerang(global_position + Vector2(0, -col_size.y * 0.5 - 4.0), facing, true)
+			velocity.y += SHOT_RECOIL_UP * 0.7
+		else:
+			boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
+			velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back
+			velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
 		main.sfx("fireball")
 
 	if wall_lock > 0.0:
@@ -1392,6 +1398,9 @@ func _animate() -> void:
 		var gk := "walk1"
 		if not grounded or grappling:
 			gk = "jump"
+		elif has_boomerang and Input.is_action_pressed("move_up") \
+				and not Input.is_action_pressed("move_down") and absf(velocity.x) <= 9.0:
+			gk = "up" if st.has("up") else "jump"   # aim UP: dedicated *_up.png if drawn, else the jump pose
 		elif absf(velocity.x) > 9.0 or wall_push > 0.0:
 			gk = "walk2" if int(walk_anim) % 2 == 1 else "walk1"
 		_apply_frame(st.get(gk, st["walk1"]), facing < 0)
@@ -1412,6 +1421,11 @@ func _pose_key_flip() -> Array:
 	# "small_duck" when a duck-shrink leaves `ducking` set as we drop to the small tier)
 	if grappling:
 		# always the raised-arm jump pose while swinging, so his fist is where the chain attaches
+		return ["_jump_r" if facing >= 0 else "_jump_l", false]
+	# AIMING UP: hold Up on the ground (standing) -> raised-arm pose, reads as pointing the gun up
+	if grounded and has_boomerang and Input.is_action_pressed("move_up") \
+			and not Input.is_action_pressed("move_down") \
+			and absf(velocity.x) <= 9.0 and not ducking:
 		return ["_jump_r" if facing >= 0 else "_jump_l", false]
 	if ducking and (big or fire):
 		# duck art faces left; mirror when facing right so it keeps facing
