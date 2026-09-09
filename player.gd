@@ -614,10 +614,12 @@ func _update_alive(delta: float) -> void:
 	if has_boomerang and (boomerang == null or not is_instance_valid(boomerang)) \
 			and (Input.is_action_just_pressed("boomerang") \
 				or (not grappling and not extending and Input.is_action_just_pressed("shoot"))):
-		var aim_up := Input.is_action_pressed("move_up") and not Input.is_action_pressed("move_down")
+		var aim_up := _facing_up()   # only shoot UP when actually FACING up (standing still / jumping) — not while walking
 		if aim_up:
-			# fire UP: bullet leaves the top of his head, recoil shoves him DOWN a touch
-			boomerang = main.throw_boomerang(global_position + Vector2(0, -col_size.y * 0.5 - 4.0), facing, true)
+			# fire UP: bullet leaves the GUN MUZZLE (the raised barrel sits ~2px to the facing side of
+			# centre in the up-pose art), just above the barrel tip; recoil shoves him DOWN a touch
+			var muzzle := global_position + Vector2(float(facing) * 2.0, -col_size.y * 0.5 - 4.0)
+			boomerang = main.throw_boomerang(muzzle, facing, true)
 			velocity.y += SHOT_RECOIL_UP * 0.7
 		else:
 			boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
@@ -875,8 +877,13 @@ func _update_alive(delta: float) -> void:
 		walk_anim = 0.0
 
 	_animate()
-	# invulnerability flash: blink the sprite on/off (~10 Hz) for the duration of invuln
-	sprite.visible = invuln <= 0.0 or (int(invuln * 20.0) % 2 == 1)
+	# HIT FLASH: while invulnerable after taking a hit, flash the sprite RED (~10 Hz) so the hit
+	# reads clearly (stays visible; the red tint pulses on and off).
+	if invuln > 0.0:
+		sprite.visible = true
+		sprite.modulate = Color(2.4, 0.25, 0.25) if int(invuln * 20.0) % 2 == 0 else Color.WHITE
+	else:
+		sprite.visible = true
 
 	# reached the flagpole? (the pole tiles are solid, so the body stops a hair
 	# short of the exact column — trigger a few px early so it always fires).
@@ -1390,17 +1397,29 @@ func _apply_frame(t: Texture2D, flip := false) -> void:
 	# bottom-align the sprite to the collision box
 	sprite.position.y = col_size.y / 2.0 - t.get_height() / 2.0
 
+# TRUE when the player is in the AIM-UP pose (so a shot goes straight UP). Needs the boomerang
+# power, Up held (not Down), not grappling/ducking, and either being airborne OR nearly still on
+# the ground. So WALKING + Up shoots FORWARD — you must be FACING up (standing or jumping) to
+# shoot up. Shared by the shot code and the animation so the pose and the shot always agree.
+func _facing_up() -> bool:
+	if not has_boomerang or grappling or ducking:
+		return false
+	if not Input.is_action_pressed("move_up") or Input.is_action_pressed("move_down"):
+		return false
+	return not grounded or absf(velocity.x) <= 9.0
+
+
 func _animate() -> void:
 	# SIMPLE 3-frame character (guy, grass): jump in the air, alternate walk1/walk2 while moving,
 	# walk1 as the standing/idle frame. Art faces RIGHT → mirror when facing left.
 	if _simple_tex.has(main.selected_char):
 		var st: Dictionary = _simple_tex[main.selected_char]
+		var aiming_up: bool = _facing_up() and st.has("up")   # up pose only when actually facing up
 		var gk := "walk1"
-		if not grounded or grappling:
+		if aiming_up:
+			gk = "up"                                # dedicated *_up.png aim-up pose (ground or air)
+		elif not grounded or grappling:
 			gk = "jump"
-		elif has_boomerang and Input.is_action_pressed("move_up") \
-				and not Input.is_action_pressed("move_down") and absf(velocity.x) <= 9.0:
-			gk = "up" if st.has("up") else "jump"   # aim UP: dedicated *_up.png if drawn, else the jump pose
 		elif absf(velocity.x) > 9.0 or wall_push > 0.0:
 			gk = "walk2" if int(walk_anim) % 2 == 1 else "walk1"
 		_apply_frame(st.get(gk, st["walk1"]), facing < 0)

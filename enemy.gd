@@ -37,7 +37,7 @@ const SERP_SPD := 10.0          # Serp (snail) patrol speed — VERY slow (norma
 const SERP_SIZE := Vector2(16, 20)  # ~ the 21px sprite so landing on it stomps (no invisible pixels)
 const VIRUS_SIZE := Vector2(20, 22) # Virus: goomba-like walker; box ~ its 29x27 sprite (overhangs a touch)
 var serp_hp := 3                # Serp takes 3 SHOTS to kill (flashes on each hit)
-var virus_hp := 5               # Virus takes 5 SHOTS to kill (flashes on each hit)
+var virus_hp := 10              # Virus takes 10 SHOTS to kill (flashes on each hit)
 var melting := false            # Virus death: it MELTS (flatten + spread + sink + fade) instead of flipping off
 var melt_t := 0.0
 var _melt_base_y := 0.0
@@ -85,7 +85,7 @@ const GOOMBA := Vector2(14, 14)
 const KOOPA := Vector2(14, 14)
 const SHELL := Vector2(14, 14)
 const FIRE_INTERVAL := 1.0     # purple goomba: seconds between fireball spits
-const VIRUS_FIRE_INTERVAL := 2.0   # Virus: spits a projectile at the player every 2s
+const VIRUS_FIRE_INTERVAL := 0.9   # Virus: spits a projectile at the player fast (every 0.9s)
 const WEDGE_WINDOW := 0.1      # reversals closer together than this count as "wedged"
 const WEDGE_HITS := 5          # this many rapid reversals -> it's stuck -> drop & die
 const WAKE_DELAY := 15.0       # still-shell seconds before it wakes
@@ -363,7 +363,8 @@ func _animate() -> void:
 	var t := int(Time.get_ticks_msec())
 	sprite.flip_v = belly_up        # block-bumped shells render upside-down
 	if kind == "serp":
-		_frame(_t("serp"), dir < 0)   # 1-frame snail; art faces RIGHT, mirror when crawling left
+		# slow 2-frame slither — the body undulates; art faces RIGHT, mirror when crawling left
+		_frame(_t("serp2") if (t / 320) % 2 else _t("serp"), dir < 0)
 		return
 	if kind == "virus":
 		# 2-frame walk (front-facing, symmetric — no flip); alternate on a ~150ms clock like the goomba
@@ -488,7 +489,7 @@ func boomerang_kill(hit_dir := 1) -> void:
 			_do_knock_out(hit_dir)
 		return
 	if kind == "virus":
-		# Virus is tough: 5 shots to kill, flashing white on each hit
+		# Virus is tough: 10 shots to kill, flashing white on each hit
 		virus_hp -= 1
 		_flash_t = 0.18
 		if virus_hp <= 0:

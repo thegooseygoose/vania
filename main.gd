@@ -1714,6 +1714,8 @@ var grey_doors: Array = []      # GREY DoorPart halves — open only when their 
 var door_pairs: Array = []      # [LEFT, RIGHT] half pairs of each door (Metroid walk-through transition)
 var _sector_rects: Array = []   # manual camera SECTORS (Rect2 px) from placed Sector nodes; empty = no room cam
 var _cam_room: Rect2 = Rect2()  # the sector the camera is currently framing (empty = snap on next update)
+var _mask_room: Rect2 = Rect2() # the sector rect the black MASK frames — interpolated in lockstep with
+								#  the camera dolly so it glides smoothly between rooms (no snap)
 var _door_walk_pair = null      # the door pair Mario is currently auto-walking through (null = none)
 var _door_walk_dir := 0         # which way he's walking through it (+1 right, -1 left)
 var _door_cam_hold := 0.0       # camera HOLDS on the current room this long before scrolling to the next
@@ -1740,6 +1742,7 @@ func _wire_powerups() -> void:
 	save_stations.clear()
 	_sector_rects.clear()
 	_cam_room = Rect2()
+	_mask_room = Rect2()
 	for n in level.get_children():
 		if n is Sector:
 			_sector_rects.append(n.rect_px())
@@ -2302,14 +2305,9 @@ func bump_block(tx: int, ty: int) -> void:
 		sfx("powerup_appear")
 		_start_block_bump(coord, used_x, _spawn_trap_mushroom.bind(tx, ty))
 	elif ax == ATLAS_BRICK or ax == ATLAS_BRICK_PURPLE:
-		if player.big:
-			terrain.erase_cell(coord)        # removes the tile and its collision
-			_spawn_debris(tx, ty, ax == ATLAS_BRICK_PURPLE)   # purple pieces for the purple brick
-			score += 50
-			sfx("brick")
-		else:
-			sfx("bump")                       # small Mario can't break it — just bump
-			_start_block_bump(coord, ax)      # brick hops up 5px and back (keeps its colour)
+		# A brick is INERT to a head-bump: it does NOT move/hop at all — just a solid thunk.
+		# Bricks are broken by SHOOTING them (see boomerang.gd), or the slam/dash abilities.
+		sfx("bump")
 	elif ax == ATLAS_USED or ax == ATLAS_USED_PURPLE or ax == ATLAS_BLOCKC or ax == ATLAS_PIPEUP:
 		# solid, already-spent / plain block: bump sound only, no hop (per request)
 		sfx("bump")
@@ -2962,6 +2960,27 @@ func _update_camera() -> void:
 			cam_x = lerp(cam_x, tgt.x, clampf(CAM_ROOM_PAN * dt, 0.0, 1.0))
 			cam_y = lerp(cam_y, tgt.y, clampf(CAM_ROOM_PAN * dt, 0.0, 1.0))
 			_cam_lock = false
+		# MASK: frame the sector exactly, but while the camera dollies between rooms interpolate the
+		# mask rect IN LOCKSTEP with the camera's progress (old room -> new room). This keeps the
+		# black frame glued to the scroll so leaving a room glides smoothly (no snap, no black
+		# creeping over the view) and it lands exactly on the new sector when the dolly settles.
+		if _mask_room == Rect2() or _cam_room == Rect2() or _cam_room == r:
+			_mask_room = r
+		else:
+			# Progress the mask PER AXIS, exactly matching the camera's independent x/y dolly
+			# (move_toward runs each axis separately, so a single Euclidean scalar made the frame
+			# lurch as the two axes finished at different times). Now the black frame stays glued
+			# to the scroll on both axes -> no jerk leaving a room.
+			var fa: Vector2 = _cam_frame(_cam_room)
+			var fb: Vector2 = _cam_frame(r)
+			var pxp: float = -1.0
+			var pyp: float = -1.0
+			if absf(fb.x - fa.x) >= 0.5: pxp = clampf((cam_x - fa.x) / (fb.x - fa.x), 0.0, 1.0)
+			if absf(fb.y - fa.y) >= 0.5: pyp = clampf((cam_y - fa.y) / (fb.y - fa.y), 0.0, 1.0)
+			if pxp < 0.0: pxp = pyp if pyp >= 0.0 else 1.0    # no x scroll: follow the y progress
+			if pyp < 0.0: pyp = pxp if pxp >= 0.0 else 1.0    # no y scroll: follow the x progress
+			_mask_room.position = Vector2(lerpf(_cam_room.position.x, r.position.x, pxp), lerpf(_cam_room.position.y, r.position.y, pyp))
+			_mask_room.size = Vector2(lerpf(_cam_room.size.x, r.size.x, pxp), lerpf(_cam_room.size.y, r.size.y, pyp))
 		var shk := Vector2.ZERO
 		if _cam_shake > 0.05:
 			shk = Vector2(randf_range(-_cam_shake, _cam_shake), randf_range(-_cam_shake, _cam_shake))
@@ -5271,8 +5290,8 @@ func _load_textures() -> void:
 		"goomba_flat": "enemies/goomba_flat",
 		# Zoomer (Metroid crawler, zomb.png): 2-frame walk that hugs surfaces
 		"zoomer0": "enemies/zoomer0", "zoomer1": "enemies/zoomer1",
-		# Serp (snail, serp.png): 1 frame, crawls very slowly
-		"serp": "enemies/serp",
+		# Serp (snail, serp.png): 2-frame slow slither (body undulates)
+		"serp": "enemies/serp", "serp2": "enemies/serp2",
 		# Bug (flyer): 2-frame wing flap
 		"bug0": "enemies/bug0", "bug1": "enemies/bug1",
 		# Metroid boss (floater): 2-frame pulse

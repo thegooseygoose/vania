@@ -58,6 +58,12 @@ func _paint(ci: CanvasItem) -> void:
 		ci.draw_rect(Rect2(0, 0, w, float(main.VIEW_H)), Color.BLACK)
 		font.draw_text(ci, Vector2(0, main.VIEW_H / 2.0 - 6), main.level_card_text, 2.0, Color.WHITE, w)
 		return
+	# SECTOR isolation: black out everything outside the sector you're in, so neighbouring
+	# sectors are never visible (a sector smaller than the screen would otherwise bleed the
+	# adjacent rooms into the margins). Drawn UNDER the HUD text below.
+	if main.game_state == "play":
+		_paint_sector_mask(ci)
+
 	# top status row — score / MARIO / coins removed; the minimap lives in that top-left space now
 	# which room (section) of the level you're in (room-camera levels only) — WORLD readout removed
 	if main.game_state == "play" and main.uses_rooms():
@@ -159,6 +165,30 @@ func _paint(ci: CanvasItem) -> void:
 func reset_map() -> void:
 	map_seen.clear()
 	_map_level = -999
+
+
+# Draw opaque black over the whole screen EXCEPT the current sector's rectangle, so you can
+# only ever see the sector you're standing in. Zero-size bars (sector >= screen) draw nothing,
+# so wide/tall rooms are unaffected. During a room-to-room dolly the mask covers the union of
+# the old and new sector so the scroll between them stays visible.
+func _paint_sector_mask(ci: CanvasItem) -> void:
+	if main._sector_rects.is_empty():
+		return
+	# use the EASED mask rect (glides smoothly to a single sector); fall back to the raw sector
+	var r: Rect2 = main._mask_room if main._mask_room.size.x > 0.0 else main.current_room_rect()
+	if r.size.x <= 0.0 or r.size.y <= 0.0:
+		return
+	var W := float(main.VIEW_W)
+	var H := float(main.VIEW_H)
+	var sx: float = r.position.x - main.cam_x            # sector rect in screen space
+	var sy: float = r.position.y - main.cam_y
+	var rx: float = sx + r.size.x
+	var by: float = sy + r.size.y
+	var black := Color.BLACK
+	if sy > 0.0:            ci.draw_rect(Rect2(0.0, 0.0, W, sy), black)          # top band
+	if by < H:             ci.draw_rect(Rect2(0.0, by, W, H - by), black)       # bottom band
+	if sx > 0.0:           ci.draw_rect(Rect2(0.0, 0.0, sx, H), black)          # left band
+	if rx < W:             ci.draw_rect(Rect2(rx, 0.0, W - rx, H), black)       # right band
 
 
 # numeric HP, drawn top row beside the minimap. "HP 100", turns red/orange as it drops.

@@ -93,8 +93,12 @@ func _physics_process(delta: float) -> void:
 		step = minf(step, BULLET_RANGE - _bullet_traveled)   # don't overshoot the 64px range
 		global_position += Vector2(aim) * step               # sideways OR up, per aim
 		_bullet_traveled += step
-		# blocked by a solid wall/block — it can't fly through terrain
+		# blocked by a solid wall/block — it can't fly through terrain. A brick, though, BREAKS
+		# when shot (Metroid-style): smash_tile erases it (no-op on any non-brick wall).
 		if _solid_wall_at(global_position):
+			var cell := Vector2i(int(floor(global_position.x / 16.0)), int(floor(global_position.y / 16.0)))
+			if main.has_method("smash_tile"):
+				main.smash_tile(cell.x, cell.y)
 			queue_free()
 			return
 		if _bullet_traveled >= BULLET_RANGE \
