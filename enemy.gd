@@ -35,7 +35,13 @@ const ZOOM := Vector2(14, 14)   # collision box (fits a 1-tile channel)
 const ZOOM_SPEED := 42.0        # crawl speed (px/s)
 const SERP_SPD := 10.0          # Serp (snail) patrol speed — VERY slow (normal ENEMY_SPD is 34)
 const SERP_SIZE := Vector2(16, 20)  # ~ the 21px sprite so landing on it stomps (no invisible pixels)
+const VIRUS_SIZE := Vector2(20, 22) # Virus: goomba-like walker; box ~ its 29x27 sprite (overhangs a touch)
 var serp_hp := 3                # Serp takes 3 SHOTS to kill (flashes on each hit)
+var virus_hp := 5               # Virus takes 5 SHOTS to kill (flashes on each hit)
+var melting := false            # Virus death: it MELTS (flatten + spread + sink + fade) instead of flipping off
+var melt_t := 0.0
+var _melt_base_y := 0.0
+const MELT_TIME := 0.7
 var _flash_t := 0.0             # brief white flash when hit by a shot
 
 # Bug (flyer, kind == "bug"): rises to the player's head height, then hovers + chases.
@@ -136,7 +142,7 @@ func spawn(feet_pos: Vector2) -> void:
 		global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)   # floats from where it's painted
 		_animate()
 		return
-	rect.size = SERP_SIZE if kind == "serp" else (KOOPA if kind == "koopa" else GOOMBA)
+	rect.size = VIRUS_SIZE if kind == "virus" else (SERP_SIZE if kind == "serp" else (KOOPA if kind == "koopa" else GOOMBA))
 	dir = -1
 	global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)
 	velocity = Vector2(dir * (SERP_SPD if kind == "serp" else main.ENEMY_SPD), 0)
@@ -161,6 +167,16 @@ func _physics_process(delta: float) -> void:
 
 	if dead:
 		dead_timer += delta
+		if melting:
+			# MELT: flatten down, spread wide, sink into the ground, and fade to nothing.
+			melt_t += delta
+			var pm: float = clampf(melt_t / MELT_TIME, 0.0, 1.0)
+			sprite.scale = Vector2(1.0 + pm * 0.5, maxf(0.05, 1.0 - pm))
+			sprite.position.y = _melt_base_y + pm * rect.size.y * 0.6
+			sprite.modulate = Color(0.55, 0.7, 1.0, 1.0 - clampf((pm - 0.3) / 0.7, 0.0, 1.0))
+			if melt_t >= MELT_TIME:
+				remove_me = true
+			return
 		if not squished:
 			# small pop peaks ~20px up, then a natural gravity pulls it down while
 			# the constant horizontal carries it diagonally off the screen
@@ -230,7 +246,7 @@ func _physics_process(delta: float) -> void:
 		# just let it drop.
 
 	# fell into a pit
-	if global_position.y > main.VIEW_H + 40:
+	if global_position.y > main.lvl_bottom + 40:
 		remove_me = true
 		return
 
@@ -337,6 +353,10 @@ func _animate() -> void:
 	sprite.flip_v = belly_up        # block-bumped shells render upside-down
 	if kind == "serp":
 		_frame(_t("serp"), dir < 0)   # 1-frame snail; art faces RIGHT, mirror when crawling left
+		return
+	if kind == "virus":
+		# 2-frame walk (front-facing, symmetric — no flip); alternate on a ~150ms clock like the goomba
+		_frame(_t("virus1") if (t / 150) % 2 else _t("virus0"), false)
 		return
 	if kind == "bug":
 		# 2-frame wing flap; art is symmetric, flip toward travel
@@ -456,9 +476,27 @@ func boomerang_kill(hit_dir := 1) -> void:
 		if boss_hp <= 0:
 			_do_knock_out(hit_dir)
 		return
+	if kind == "virus":
+		# Virus is tough: 5 shots to kill, flashing white on each hit
+		virus_hp -= 1
+		_flash_t = 0.18
+		if virus_hp <= 0:
+			_do_knock_out(hit_dir)
+		return
 	_do_knock_out(hit_dir)
 
 func _do_knock_out(hit_dir := 1) -> void:
+	# Virus: it MELTS in place (flatten + spread + sink + fade) instead of flipping off.
+	if kind == "virus":
+		dead = true
+		melting = true
+		melt_t = 0.0
+		squished = false
+		dead_timer = 0.0
+		collision_mask = 0
+		velocity = Vector2.ZERO
+		_melt_base_y = sprite.position.y
+		return
 	# Zoomer, Serp & the Metroid boss: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
 	if kind == "zoomer" or kind == "serp" or kind == "metroid":
 		_spawn_explosion()
@@ -615,6 +653,9 @@ func _metroid_move(delta: float) -> void:
 func dash_kill(hit_dir := 1) -> void:
 	if kind == "zoomer" or kind == "metroid":
 		return          # the dash can't kill a zoomer or the Metroid boss — only the shot can
+	if kind == "virus":
+		_do_knock_out(hit_dir)   # virus melts (not the cyan spin) however it dies
+		return
 	dead = true
 	dash_killed = true
 	squished = false

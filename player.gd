@@ -48,7 +48,8 @@ var has_morph := false          # CIRCLE: press Down on the ground to become a m
 var has_walljump := false       # DIAMOND: slide down walls and leap off them
 var has_grapple := false        # STAR: shoot X near a grab point to zip up to it
 var has_boomerang := false      # BOOMERANG: press X to throw a returning boomerang
-const SHOT_RECOIL := 55.0       # firing the SHOT kicks the shooter back a bit (opposite facing)
+const SHOT_RECOIL := 95.0       # firing the SHOT kicks the shooter back (opposite facing)
+const SHOT_RECOIL_UP := 65.0    # a little upward pop so the recoil floats back instead of just sliding
 var has_waterwalk := false      # W: walk on top of water (it becomes solid footing; no sink/slow)
 var has_dash := false            # DASH: press Dash (F / controller LB) to lunge forward, smashing enemies + brittle blocks
 var dashing := false
@@ -613,6 +614,7 @@ func _update_alive(delta: float) -> void:
 				or (not grappling and not extending and Input.is_action_just_pressed("shoot"))):
 		boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
 		velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back a little
+		velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
 		main.sfx("fireball")
 
 	if wall_lock > 0.0:

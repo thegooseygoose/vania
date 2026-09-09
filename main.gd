@@ -1283,6 +1283,7 @@ func _read_spawns() -> void:
 				28: etype = "door_right"                    # door.png: right half-circle (boomerang-shootable)
 				29: etype = "bug"                           # flying bug: rises to head height, then chases you
 				30: etype = "metroid"                       # floating Metroid boss: slow homing float, SHOT-only, many hits
+				31: etype = "virus"                         # Virus: a walking ground enemy (goomba-like patrol)
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1642,6 +1643,15 @@ func _spawn_enemies() -> void:
 			mt.spawn(d["pos"])
 			enemies.append(mt)
 			continue
+		# Virus: a walking ground enemy with goomba-like patrol physics.
+		if t == "virus":
+			var vr = Enemy.new()
+			vr.main = self
+			vr.kind = "virus"
+			add_child(vr)
+			vr.spawn(d["pos"])
+			enemies.append(vr)
+			continue
 		var e = Enemy.new()
 		e.main = self
 		# "purple_goomba" / "purple_koopa" share the base kind's physics + stomp
@@ -1687,6 +1697,8 @@ var doors: Array = []           # Door nodes (open when a switch is hit)
 var door_switches: Array = []   # DoorSwitch targets — only the boomerang can hit them
 var door_parts: Array = []      # DoorPart parts — the shot hits these (halves shoot out)
 var door_pairs: Array = []      # [LEFT, RIGHT] half pairs of each door (Metroid walk-through transition)
+var _sector_rects: Array = []   # manual camera SECTORS (Rect2 px) from placed Sector nodes; empty = no room cam
+var _cam_room: Rect2 = Rect2()  # the sector the camera is currently framing (empty = snap on next update)
 var _door_walk_pair = null      # the door pair Mario is currently auto-walking through (null = none)
 var _door_walk_dir := 0         # which way he's walking through it (+1 right, -1 left)
 var _door_cam_hold := 0.0       # camera HOLDS on the current room this long before scrolling to the next
@@ -1710,7 +1722,12 @@ func _wire_powerups() -> void:
 	door_parts.clear()
 	bikes.clear()
 	save_stations.clear()
+	_sector_rects.clear()
+	_cam_room = Rect2()
 	for n in level.get_children():
+		if n is Sector:
+			_sector_rects.append(n.rect_px())
+			continue
 		if n is DoorPart:
 			n.main = self
 			door_parts.append(n)   # all parts block the shot; halves also get shot out (shoot())
@@ -1794,21 +1811,55 @@ func _seg_target(seg: Array) -> float:
 		return (seg[0] + seg[1]) / 2.0 - float(VIEW_W) / 2.0
 	return clampf(player.global_position.x - VIEW_W / 2.0, seg[0], seg[1] - float(VIEW_W))
 
-# which room (section) the player is in, 1-based (for the HUD)
+# which SECTOR (room) the player is in, 1-based (for the HUD); 0 = none
 func current_section() -> int:
-	if _segments.is_empty() or player == null:
+	if _sector_rects.is_empty() or player == null:
 		return 1
-	var x: float = player.global_position.x
-	for i in range(_segments.size()):
-		if x >= _segments[i][0] and x < _segments[i][1]:
-			return i + 1
-	return _segments.size()
+	var i := _current_sector_index()
+	return i + 1 if i >= 0 else _sector_rects.size()
 
 func section_count() -> int:
-	return maxi(1, _segments.size())
+	return maxi(1, _sector_rects.size())
 
+# a level "uses rooms" (2D sector camera + SECT HUD) when it has any placed Sector nodes.
 func uses_rooms() -> bool:
-	return ROOM_LEVELS.has(_level_file)
+	return not _sector_rects.is_empty()
+
+# index of the smallest sector containing the player, or -1 if in none
+func _current_sector_index() -> int:
+	if player == null:
+		return -1
+	var p: Vector2 = player.global_position
+	var best := -1
+	var best_area := INF
+	for i in range(_sector_rects.size()):
+		var r: Rect2 = _sector_rects[i]
+		if r.has_point(p):
+			var a: float = r.size.x * r.size.y
+			if a < best_area:
+				best_area = a; best = i
+	return best
+
+# the Rect2 the camera should frame: the player's sector, else the whole painted level
+func current_room_rect() -> Rect2:
+	var i := _current_sector_index()
+	if i >= 0:
+		return _sector_rects[i]
+	return Rect2(lvl_left, lvl_top, maxf(1.0, lvl_right - lvl_left), maxf(1.0, lvl_bottom - lvl_top))
+
+# camera top-left (cam_x, cam_y) to frame a room rect: centre it if <= screen, else scroll within it
+func _cam_frame(r: Rect2) -> Vector2:
+	var tx: float
+	if r.size.x <= float(VIEW_W):
+		tx = r.position.x + (r.size.x - float(VIEW_W)) / 2.0
+	else:
+		tx = clampf(player.global_position.x - VIEW_W / 2.0, r.position.x, r.position.x + r.size.x - float(VIEW_W))
+	var ty: float
+	if r.size.y <= float(VIEW_H):
+		ty = r.position.y + (r.size.y - float(VIEW_H)) / 2.0
+	else:
+		ty = clampf(player.global_position.y - VIEW_H / 2.0, r.position.y, r.position.y + r.size.y - float(VIEW_H))
+	return Vector2(tx, ty)
 
 # Metroid door transition: once you've shot the near blue half and walked into the doorway,
 # the FAR half opens on its own — you walk behind the panel (its z-order) and out the far side.
@@ -2807,6 +2858,28 @@ func _update_camera() -> void:
 		var target: float = clampf(player.global_position.x - VIEW_W / 2.0, _boss_cam_lo, _boss_cam_hi)
 		cam_x = lerp(cam_x, target, clampf(10.0 * get_physics_process_delta_time(), 0.0, 1.0))
 		camera.position = Vector2(roundf(cam_x) + VIEW_W / 2.0, VIEW_H / 2.0)
+		return
+	# 2D SECTOR camera: lock to the sector (room) rect the player is in, on BOTH axes. Placed Sector
+	# nodes define the rects; crossing into another sector dollies over at a steady speed.
+	if not _sector_rects.is_empty():
+		var r: Rect2 = current_room_rect()
+		var tgt: Vector2 = _cam_frame(r)
+		var dt: float = get_physics_process_delta_time()
+		if _cam_room == Rect2():
+			_cam_room = r; cam_x = tgt.x; cam_y = tgt.y; _cam_lock = false
+		elif _cam_room != r:
+			cam_x = move_toward(cam_x, tgt.x, ROOM_SCROLL * dt)
+			cam_y = move_toward(cam_y, tgt.y, ROOM_SCROLL * dt)
+			if absf(cam_x - tgt.x) < 1.0 and absf(cam_y - tgt.y) < 1.0:
+				_cam_room = r; _cam_lock = false
+		else:
+			cam_x = lerp(cam_x, tgt.x, clampf(CAM_ROOM_PAN * dt, 0.0, 1.0))
+			cam_y = lerp(cam_y, tgt.y, clampf(CAM_ROOM_PAN * dt, 0.0, 1.0))
+			_cam_lock = false
+		var shk := Vector2.ZERO
+		if _cam_shake > 0.05:
+			shk = Vector2(randf_range(-_cam_shake, _cam_shake), randf_range(-_cam_shake, _cam_shake))
+		camera.position = Vector2(cam_x + VIEW_W / 2.0 + shk.x, cam_y + VIEW_H / 2.0 + shk.y)
 		return
 	# Vania FREE CAMERA. Horizontal: follow BOTH ways, centred. Vertical: stay locked
 	# to the ground (bottom of the level) until the player CLIMBS up to the trigger
@@ -5117,6 +5190,8 @@ func _load_textures() -> void:
 		"bug0": "enemies/bug0", "bug1": "enemies/bug1",
 		# Metroid boss (floater): 2-frame pulse
 		"metroid0": "enemies/metroid0", "metroid1": "enemies/metroid1",
+		# Virus (walking ground enemy): 2-frame walk
+		"virus0": "enemies/virus0", "virus1": "enemies/virus1",
 		"koopa1": "enemies/koopa_walk1", "koopa2": "enemies/koopa_walk2",
 		"koopa_shell": "enemies/koopa_shell",
 		"shell_left": "enemies/shell_left", "shell_right1": "enemies/shell_right1",
