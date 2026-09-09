@@ -85,6 +85,7 @@ const GOOMBA := Vector2(14, 14)
 const KOOPA := Vector2(14, 14)
 const SHELL := Vector2(14, 14)
 const FIRE_INTERVAL := 1.0     # purple goomba: seconds between fireball spits
+const VIRUS_FIRE_INTERVAL := 2.0   # Virus: spits a projectile at the player every 2s
 const WEDGE_WINDOW := 0.1      # reversals closer together than this count as "wedged"
 const WEDGE_HITS := 5          # this many rapid reversals -> it's stuck -> drop & die
 const WAKE_DELAY := 15.0       # still-shell seconds before it wakes
@@ -263,6 +264,16 @@ func _physics_process(delta: float) -> void:
 			if to_player == 0:
 				to_player = dir
 			main.enemy_shoot_fireball(global_position, to_player)
+
+	# Virus: spit a projectile toward the player every 2s, while on-screen
+	if kind == "virus" and _on_screen():
+		fire_timer += delta
+		if fire_timer >= VIRUS_FIRE_INTERVAL:
+			fire_timer = 0.0
+			var tp := signi(main.player.global_position.x - global_position.x)
+			if tp == 0:
+				tp = dir
+			main.enemy_shoot_fireball(global_position, tp)
 
 	if kind == "koopa" and shell:
 		_update_shell(delta)

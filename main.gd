@@ -727,6 +727,7 @@ var has_flag := true            # false on levels with no flagpole/castle finish
 var flag_sliding := false       # true once the pole is grabbed → flag lowers smoothly
 const FLAG_SLIDE_SPEED := 114.5  # px/s the flag lowers (smooth, ~pixel-by-pixel)
 var start_delay := 0.0          # brief "get ready" freeze at each stage start (fades in)
+var powerup_freeze_t := 0.0     # Mario-style power-up: the whole world stops while a jingle plays
 var fade_alpha := 0.0           # 0 = clear, 1 = black; fades the stage in from black
 const START_DELAY := 0.5        # seconds Mario + clock are frozen while the stage fades in
 
@@ -843,11 +844,17 @@ func _ready() -> void:
 func actors_frozen() -> bool:
 	# _cam_lock: after a door walk, hold everything (enemies, clock, collisions) while the camera
 	# scrolls to settle into the new room — _update_camera still runs and clears the lock on arrival.
-	return _cam_lock or (player != null and (player.transforming or player.dead))
+	return powerup_freeze_t > 0.0 or _cam_lock or (player != null and (player.transforming or player.dead))
 
 func _physics_process(delta: float) -> void:
 	if paused:
 		return
+	# POWER-UP GET: the whole world is frozen (actors_frozen) while the jingle plays; count it down
+	# and resume the level music when it ends.
+	if powerup_freeze_t > 0.0:
+		powerup_freeze_t = maxf(0.0, powerup_freeze_t - delta)
+		if powerup_freeze_t == 0.0 and music_player:
+			music_player.stream_paused = false
 	# OVERCLOCK: tick the time-slow window + cooldown, set the world slow factor, and pitch-down the music
 	if time_slow_cd > 0.0:
 		time_slow_cd = maxf(0.0, time_slow_cd - delta)
@@ -984,6 +991,7 @@ func _physics_process(delta: float) -> void:
 	_update_barrel_spawners(delta)
 	_update_gords()
 	_update_doors()
+	_update_locked_doors()
 	_update_castle_fire(delta)
 	_update_hammers()
 	_update_coins(delta)
@@ -1281,6 +1289,9 @@ func _read_spawns() -> void:
 				26: etype = "door_left"                     # door.png: left half-circle (boomerang-shootable)
 				27: etype = "door_mid"                      # door.png: centre panel (walk-behind, no collision)
 				28: etype = "door_right"                    # door.png: right half-circle (boomerang-shootable)
+				32: etype = "grey_left"                     # GREY door: opens only when the sector's enemies are all dead
+				33: etype = "grey_mid"
+				34: etype = "grey_right"
 				29: etype = "bug"                           # flying bug: rises to head height, then chases you
 				30: etype = "metroid"                       # floating Metroid boss: slow homing float, SHOT-only, many hits
 				31: etype = "virus"                         # Virus: a walking ground enemy (goomba-like patrol)
@@ -1326,12 +1337,12 @@ func _read_spawns() -> void:
 				# stationary hazard centred on the painted tile
 				_enemy_defs.append({"pos": Vector2(cell.x * TILE + TILE / 2.0, cell.y * TILE + TILE / 2.0), "type": "gord"})
 				continue
-			elif etype == "door_left" or etype == "door_mid" or etype == "door_right":
-				# door.png piece: 48px tall, its BOTTOM resting on the painted cell's bottom.
+			elif etype.ends_with("_left") or etype.ends_with("_mid") or etype.ends_with("_right"):
+				# door.png / grey-door piece: 48px tall, its BOTTOM resting on the painted cell's bottom.
 				# Paint 3 CONSECUTIVE cells (LEFT, MID, RIGHT): the halves are 8px and the panel 32px,
 				# so shift LEFT into the left 8px of its cell and RIGHT into the right 8px — then the
 				# three sit EDGE-TO-EDGE (no overlap) and form the full 48px door.
-				var dox := -4.0 if etype == "door_left" else (4.0 if etype == "door_right" else 0.0)
+				var dox := -4.0 if etype.ends_with("_left") else (4.0 if etype.ends_with("_right") else 0.0)
 				_enemy_defs.append({
 					"pos": Vector2(cell.x * TILE + TILE / 2.0 + dox, float((cell.y + 1) * TILE) - 24.0),
 					"type": etype})
@@ -1608,13 +1619,16 @@ func _spawn_enemies() -> void:
 			enemies.append(z)
 			continue
 		# Door pieces (door.png): painted tiles → DoorPart nodes (MID walk-behind, halves shootable)
-		if t == "door_left" or t == "door_mid" or t == "door_right":
+		if t.ends_with("_left") or t.ends_with("_mid") or t.ends_with("_right"):
 			var dp = DoorPart.new()
 			dp.main = self
-			dp.part = DoorPart.Part.LEFT if t == "door_left" else (DoorPart.Part.RIGHT if t == "door_right" else DoorPart.Part.MID)
+			dp.locked = t.begins_with("grey")   # GREY = sector-clear door (can't be shot, opens when sector cleared)
+			dp.part = DoorPart.Part.LEFT if t.ends_with("_left") else (DoorPart.Part.RIGHT if t.ends_with("_right") else DoorPart.Part.MID)
 			level.add_child(dp)
 			dp.global_position = d["pos"]
 			door_parts.append(dp)   # all parts block the shot; halves also get shot out
+			if dp.locked:
+				grey_doors.append(dp)
 			continue
 		# Serp: a snail — a normal walking Enemy but its own kind so it crawls very slowly
 		if t == "serp":
@@ -1696,6 +1710,7 @@ var grab_points: Array = []     # GrabPoint anchors the grapple beam can latch t
 var doors: Array = []           # Door nodes (open when a switch is hit)
 var door_switches: Array = []   # DoorSwitch targets — only the boomerang can hit them
 var door_parts: Array = []      # DoorPart parts — the shot hits these (halves shoot out)
+var grey_doors: Array = []      # GREY DoorPart halves — open only when their sector's enemies are all dead
 var door_pairs: Array = []      # [LEFT, RIGHT] half pairs of each door (Metroid walk-through transition)
 var _sector_rects: Array = []   # manual camera SECTORS (Rect2 px) from placed Sector nodes; empty = no room cam
 var _cam_room: Rect2 = Rect2()  # the sector the camera is currently framing (empty = snap on next update)
@@ -1720,6 +1735,7 @@ func _wire_powerups() -> void:
 	doors.clear()
 	door_switches.clear()
 	door_parts.clear()
+	grey_doors.clear()
 	bikes.clear()
 	save_stations.clear()
 	_sector_rects.clear()
@@ -1750,7 +1766,44 @@ func _wire_powerups() -> void:
 			n.main = self
 			door_switches.append(n)
 	_spawn_switch_tiles()   # also turn painted atlas-16 tiles into switches
+	_build_painted_sectors()  # painted SECTOR tiles (atlas 62) -> camera sector rects
 	_pair_doors()           # match each door's LEFT+RIGHT halves for the walk-through transition
+
+# PAINTED SECTORS: each connected block of SECTOR tiles (Markers layer) becomes one camera sector rect
+# (its tile bounding box). There are 3 colours (atlas 62 cyan / 63 magenta / 64 lime) — only SAME-colour
+# cells merge, so two sectors that TOUCH can stay separate by using different colours (alternate them).
+# The tiles are erased after reading so they don't show in-game. Paint a rectangle per room — that's it.
+const SECTOR_TILE_ATLASES := [62, 63, 64]
+func _build_painted_sectors() -> void:
+	if markers_layer == null:
+		return
+	var cells := {}   # cell -> atlas colour
+	for c in markers_layer.get_used_cells():
+		var ax: int = markers_layer.get_cell_atlas_coords(c).x
+		if ax in SECTOR_TILE_ATLASES:
+			cells[c] = ax
+	if cells.is_empty():
+		return
+	var seen := {}
+	for start_cell in cells:
+		if seen.has(start_cell):
+			continue
+		var col: int = cells[start_cell]           # only flood same-colour cells → touching-but-different stays split
+		var q: Array = [start_cell]
+		seen[start_cell] = true
+		var minx: int = start_cell.x; var maxx: int = start_cell.x
+		var miny: int = start_cell.y; var maxy: int = start_cell.y
+		while not q.is_empty():
+			var p: Vector2i = q.pop_back()
+			minx = mini(minx, p.x); maxx = maxi(maxx, p.x)
+			miny = mini(miny, p.y); maxy = maxi(maxy, p.y)
+			for d in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]:
+				var np: Vector2i = p + d
+				if cells.has(np) and cells[np] == col and not seen.has(np):
+					seen[np] = true; q.append(np)
+		_sector_rects.append(Rect2(minx * TILE, miny * TILE, (maxx - minx + 1) * TILE, (maxy - miny + 1) * TILE))
+	for c in cells:
+		markers_layer.erase_cell(c)   # consumed: don't render the marker in-game
 
 # Pair each door's two blue half-circles (LEFT with the nearest RIGHT to its right, same row).
 func _pair_doors() -> void:
@@ -1863,6 +1916,34 @@ func _cam_frame(r: Rect2) -> Vector2:
 
 # Metroid door transition: once you've shot the near blue half and walked into the doorway,
 # the FAR half opens on its own — you walk behind the panel (its z-order) and out the far side.
+# the smallest sector rect containing a point (empty Rect2 if none)
+func _sector_rect_at(pos: Vector2) -> Rect2:
+	var best := Rect2(); var best_area := INF
+	for r in _sector_rects:
+		if r.has_point(pos):
+			var a: float = r.size.x * r.size.y
+			if a < best_area:
+				best_area = a; best = r
+	return best
+
+# GREY doors open only once every living enemy in their sector is dead (whole level if no sector).
+func _update_locked_doors() -> void:
+	if grey_doors.is_empty():
+		return
+	for dp in grey_doors:
+		if not is_instance_valid(dp) or not dp.locked:
+			continue                         # already powered up to blue
+		var rect: Rect2 = _sector_rect_at(dp.global_position)
+		var any_alive := false
+		for e in enemies:
+			if not is_instance_valid(e) or e.dead:
+				continue
+			if rect == Rect2() or rect.has_point(e.global_position):
+				any_alive = true
+				break
+		if not any_alive:
+			dp.unlock()   # grey -> blue (flash); player must now shoot it open
+
 func _update_doors() -> void:
 	if player == null or player.dead:
 		return
@@ -2153,7 +2234,11 @@ func collect_powerup(shape: String) -> void:
 		"riderkick": player.has_riderkick = true
 		"timeslow": player.has_timeslow = true
 		"hover": player.has_hover = true
-	sfx("powerup")
+	# Mario-style power-up get: freeze the whole world + pause the music while a jingle plays
+	powerup_freeze_t = 1.45
+	if music_player:
+		music_player.stream_paused = true
+	sfx("fanfare")
 	var msg := {"square": "DOUBLE JUMP!", "triangle": "GROUND POUND!  (jump, then Down)",
 		"circle": "MORPH BALL!  (press Down)", "diamond": "WALL JUMP!  (jump off walls)",
 		"star": "GRAPPLE BEAM!  (hold Y/C to swing, release to launch)", "boomerang": "SHOT!  (C, or B on controller)",
@@ -5119,6 +5204,7 @@ func sfx(name: String) -> AudioStreamPlayer:
 		"jump_big": path = "res://audio/vania/jump sound.wav"     # same sound for big/fire jumps
 		"stomp": path = "res://audio/mario sound/stromp.wav"
 		"powerup": path = "res://audio/mario sound/power up collect.wav"
+		"fanfare": path = "res://audio/fanfare.wav"   # power-up-get jingle (world freezes while it plays)
 		"powerup_appear": path = "res://audio/mario sound/power up apear.wav"
 		"coin": path = "res://audio/mario sound/coin.mp3"
 		"brick": path = "res://audio/mario sound/break block.wav"

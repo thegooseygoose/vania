@@ -35,8 +35,13 @@ var menu_img: Texture2D        # main1.png — START GAME / LEVEL RECORDS / (loc
 var menu2_img: Texture2D       # main2.png — the UNLOCKED version (LEVEL SELECT active)
 var menu_rect: Rect2
 var menu_sel := 0             # 0 = START GAME, 1 = LEVEL RECORDS, 2 = LEVEL SELECT
-var mm_sel := 0             # Vania main menu selection: 0=LEVEL A … 7=LEVEL H
-const MENU_SLOTS := [1, 2, 5, 7, 8, 9, 10, 11, 12, 13]   # A..H + Z + BRINSTAR -> play-slots
+var mm_sel := 0             # index into the current menu list
+var mm_in_extras := false   # true = showing the EXTRAS submenu
+# each entry = [label, play-slot]. slot -1 = open EXTRAS, -2 = back to main.
+const MAIN_MENU := [["LEVEL A", 1], ["LEVEL C", 5], ["LEVEL Z", 12], ["EXTRAS", -1]]
+const EXTRA_MENU := [["LEVEL B", 2], ["LEVEL D", 7], ["LEVEL E", 8], ["LEVEL F", 9], ["LEVEL G", 10], ["LEVEL H", 11], ["BRINSTAR", 13], ["BACK", -2]]
+func _menu_list() -> Array:
+	return EXTRA_MENU if mm_in_extras else MAIN_MENU
 var char_sel := 0          # character-select: 0=MARIO, 1=KAMEN
 var pending_level := 1     # the level chosen on the menu, launched after character select
 var char_preview := []     # [Mario stand tex, Kamen (masked) stand tex]
@@ -207,48 +212,43 @@ func _open_files() -> void:
 	if String(Main.save_names[0]) == "":
 		Main.save_names[0] = "VANIA"
 	mm_sel = 0
+	mm_in_extras = false
 	_goto("mainmenu")
 
 
 func _mainmenu_input(event: InputEvent) -> void:
+	var lst: Array = _menu_list()
 	var confirm := false
+	var moved := 0
 	if event is InputEventJoypadButton and event.pressed:
 		match event.button_index:
-			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN:
-				mm_sel = (mm_sel + 1) % 10
-			JOY_BUTTON_START, JOY_BUTTON_A:
-				confirm = true
-		queue_redraw()
+			JOY_BUTTON_DPAD_UP: moved = -1
+			JOY_BUTTON_DPAD_DOWN: moved = 1
+			JOY_BUTTON_START, JOY_BUTTON_A: confirm = true
+			JOY_BUTTON_B:
+				if mm_in_extras: mm_in_extras = false; mm_sel = 0; queue_redraw(); return
 	elif event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_UP, KEY_DOWN:
-				mm_sel = (mm_sel + 1) % 10
-			KEY_A, KEY_1:
-				mm_sel = 0; confirm = true
-			KEY_B, KEY_2:
-				mm_sel = 1; confirm = true
-			KEY_C, KEY_3:
-				mm_sel = 2; confirm = true
-			KEY_D, KEY_4:
-				mm_sel = 3; confirm = true
-			KEY_E, KEY_5:
-				mm_sel = 4; confirm = true
-			KEY_F, KEY_6:
-				mm_sel = 5; confirm = true
-			KEY_G, KEY_7:
-				mm_sel = 6; confirm = true
-			KEY_H, KEY_8:
-				mm_sel = 7; confirm = true
-			KEY_Z, KEY_9:
-				mm_sel = 8; confirm = true
-			KEY_0:
-				mm_sel = 9; confirm = true
-			KEY_ENTER, KEY_KP_ENTER, KEY_P, KEY_SPACE:
-				confirm = true
+		var kc: int = event.keycode
+		if kc == KEY_UP: moved = -1
+		elif kc == KEY_DOWN: moved = 1
+		elif kc == KEY_ENTER or kc == KEY_KP_ENTER or kc == KEY_P or kc == KEY_SPACE: confirm = true
+		elif kc == KEY_ESCAPE or kc == KEY_BACKSPACE:
+			if mm_in_extras: mm_in_extras = false; mm_sel = 0; queue_redraw(); return
+		elif kc >= KEY_1 and kc <= KEY_9:
+			var n: int = kc - KEY_1
+			if n < lst.size(): mm_sel = n; confirm = true
+	if moved != 0:
+		mm_sel = (mm_sel + moved + lst.size()) % lst.size()
 		queue_redraw()
 	if confirm:
-		pending_level = MENU_SLOTS[mm_sel]   # A->1-1, B->1-2, C->1-5; launched after char select
-		_goto("charselect")
+		var slot: int = lst[mm_sel][1]
+		if slot == -1:              # EXTRAS -> open the submenu
+			mm_in_extras = true; mm_sel = 0; queue_redraw()
+		elif slot == -2:            # BACK -> main menu
+			mm_in_extras = false; mm_sel = 0; queue_redraw()
+		else:
+			pending_level = slot     # play-slot; launched after char select
+			_goto("charselect")
 
 
 func _charselect_input(event: InputEvent) -> void:
@@ -462,16 +462,17 @@ func _draw() -> void:
 
 func _draw_mainmenu() -> void:
 	var w := float(VIEW_W)
-	font.draw_text(self, Vector2(0, 54), "VANIA", 3.0, C_PURPLE, w)
-	var opts := ["LEVEL A", "LEVEL B", "LEVEL C", "LEVEL D", "LEVEL E", "LEVEL F", "LEVEL G", "LEVEL H", "LEVEL Z", "BRINSTAR"]
-	for i in opts.size():
-		var y := 82.0 + i * 15.0
+	font.draw_text(self, Vector2(0, 54), ("EXTRAS" if mm_in_extras else "VANIA"), 3.0, C_PURPLE, w)
+	var lst: Array = _menu_list()
+	for i in lst.size():
+		var y := 90.0 + i * 15.0
 		var sel: bool = (i == mm_sel)
 		if sel:
 			_file_box(Rect2(72.0, y - 11.0, VIEW_W - 144.0, 15.0), C_PROMPT)
-		font.draw_text(self, Vector2(0, y), opts[i], 1.5, (C_PROMPT if sel else C_WHITE), w)
+		font.draw_text(self, Vector2(0, y), String(lst[i][0]), 1.5, (C_PROMPT if sel else C_WHITE), w)
 	if fmod(t, 0.8) < 0.5:
-		font.draw_text(self, Vector2(0, 214), "UP DOWN PICK    ENTER START", 1.0, C_WHITE, w)
+		var hint := "UP DOWN PICK   ENTER SELECT   ESC BACK" if mm_in_extras else "UP DOWN PICK    ENTER START"
+		font.draw_text(self, Vector2(0, 214), hint, 1.0, C_WHITE, w)
 
 
 func _draw_charselect() -> void:

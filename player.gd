@@ -441,6 +441,8 @@ func _physics_process(delta: float) -> void:
 		return   # 3-4 boss-arena intro — main walks Mario in, then drops the block wall
 	if main.start_delay > 0.0:
 		return   # frozen during the brief stage-start "get ready" (Mario can't move yet)
+	if main.powerup_freeze_t > 0.0:
+		return   # power-up get: the whole world stops while the jingle plays (Mario freezes too)
 	if main._cam_lock:
 		return   # camera still settling into the new room after a door walk — hold Mario until it arrives
 	if transforming:
