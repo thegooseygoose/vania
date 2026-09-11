@@ -8,7 +8,9 @@ var main                       # Main level manager (untyped to avoid a cyclic c
 var sprite: Sprite2D
 var _kamen_tex := {}            # KAMEN character: baked head-replaced pose sprites, keyed like main.tex
 var _simple_tex := {}           # simple 3-frame characters: {char: {walk1,walk2,jump}} (guy, grass)
-const SIMPLE_CHARS := ["guy", "grass"]   # guy.png / grass.png — 2 walk + 1 jump, art faces RIGHT
+const SIMPLE_CHARS := ["guy", "grass", "hal2"]   # guy/grass/hal2 — 2 walk + 1 jump, art faces RIGHT.
+									# hal2 is an ORIGINAL placeholder character (not derived from any
+									# existing game) — swap in real final art later.
 var shape: CollisionShape2D
 var col_size: Vector2             # AABB size used for gameplay hit tests
 var _caps: CapsuleShape2D         # physics shape — a capsule glides over tile seams
@@ -178,7 +180,7 @@ const SHRINK_FRAME := ["shrink4", "shrink1"]        # 0 small (D), 1 big (A)
 var invuln := 0.0
 var hurt_lock := 0.0             # brief control lock after a hit so the knockback shove reads
 var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
-const DOOR_WALK_SPEED := 0.7    # fraction of walk speed for the door cutscene stroll (lower = slower)
+const DOOR_WALK_SPEED := 0.595  # fraction of walk speed for the door cutscene stroll (lower = slower; was 0.7, -15%)
 const HURT_KNOCK_X := 127.5      # horizontal knockback (shoved opposite to facing) — 15% less than 150
 const HURT_KNOCK_UP := -153.0    # upward pop on a hit — 15% less than -180 (NES Metroid: $FD = -3 px/frame)
 const HURT_LOCK_TIME := 0.3      # seconds movement input is ignored after a hit
@@ -662,9 +664,12 @@ func _update_alive(delta: float) -> void:
 	var running := Input.is_action_pressed("run")
 	var max_s: float = main.RUN_MAX if running else main.WALK_MAX
 	var acc: float = (main.RUN_ACC if running else main.WALK_ACC) if on_floor else main.AIR_ACC
-	if submerged:
-		max_s *= WATER_MOVE           # water drags: much lower top speed...
-		acc *= WATER_MOVE             # ...and slower to build it up
+	if submerged or (not on_floor and air_was_submerged and not has_waterwalk):
+		# water drags: much lower top speed and slower to build it up. Still applies for the
+		# rest of the jump right after leaving the water (no waterwalk) — you don't regain full
+		# speed the instant you clear the surface; it comes back once you land.
+		max_s *= WATER_MOVE
+		acc *= WATER_MOVE
 	if riding:
 		max_s *= BIKE_MOVE            # the bike creeps along at 1/4 speed
 		acc *= BIKE_MOVE
@@ -1036,7 +1041,9 @@ func _morph_physics(delta: float, on_floor: bool) -> void:
 	var running := Input.is_action_pressed("run")
 	var max_s: float = (main.RUN_MAX if running else main.WALK_MAX) * MORPH_SPEED
 	var acc: float = ((main.RUN_ACC if running else main.WALK_ACC) if on_floor else main.AIR_ACC) * MORPH_SPEED
-	if submerged:                     # water drags the ball too, same as walking (skipped with the water power-up)
+	if submerged or (not on_floor and air_was_submerged and not has_waterwalk):
+		# water drags the ball too, same as walking — and the same lingering penalty right
+		# after leaving the water without the power-up (skipped entirely with waterwalk)
 		max_s *= WATER_MOVE
 		acc *= WATER_MOVE
 	var dir := 0.0

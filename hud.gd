@@ -40,8 +40,29 @@ func show_message(text: String, seconds := 3.0) -> void:
 func refresh() -> void:
 	if _msg_text != "" and Time.get_ticks_msec() >= _msg_hide_ms:
 		_msg_text = ""
+	# fog-of-war exploration is tracked EVERY frame during play, even while the minimap is
+	# toggled off — so turning it on later shows everywhere you've already been, not just
+	# what you explore from that point on.
+	if main.game_state == "play" and not main.show_level_card and not main.attract_mode:
+		_update_map_exploration()
 	if _canvas:
 		_canvas.queue_redraw()
+
+
+# reveals the area around the player on the fog-of-war map. Split out from _paint_minimap so
+# exploration progress is recorded whether or not the minimap is currently being drawn.
+func _update_map_exploration() -> void:
+	if main.terrain == null or main.player == null:
+		return
+	var tile: float = float(main.TILE)
+	if _map_level != main._level_file:                 # fog belongs to one level; reset on change
+		_map_level = main._level_file
+		map_seen.clear()
+		_map_rect = main.terrain.get_used_rect()
+	var pc := Vector2i(int(floor(main.player.global_position.x / tile)), int(floor(main.player.global_position.y / tile)))
+	for dy in range(-MAP_REVEAL, MAP_REVEAL + 1):       # reveal a radius around the player
+		for dx in range(-MAP_REVEAL, MAP_REVEAL + 1):
+			map_seen[pc + Vector2i(dx, dy)] = true
 
 
 func _paint(ci: CanvasItem) -> void:
@@ -213,18 +234,11 @@ func _paint_hp(ci: CanvasItem) -> void:
 func _paint_minimap(ci: CanvasItem) -> void:
 	if main.terrain == null or main.player == null:
 		return
-	var tile: float = float(main.TILE)
-	if _map_level != main._level_file:                 # fog belongs to one level; reset on change
-		_map_level = main._level_file
-		map_seen.clear()
-		_map_rect = main.terrain.get_used_rect()
+	_update_map_exploration()                           # safety: keep fresh even if refresh() was skipped
 	var rect := _map_rect
 	if rect.size.x <= 0 or rect.size.y <= 0:
 		return
-	var pc := Vector2i(int(floor(main.player.global_position.x / tile)), int(floor(main.player.global_position.y / tile)))
-	for dy in range(-MAP_REVEAL, MAP_REVEAL + 1):       # reveal a radius around Mario
-		for dx in range(-MAP_REVEAL, MAP_REVEAL + 1):
-			map_seen[pc + Vector2i(dx, dy)] = true
+	var pc := Vector2i(int(floor(main.player.global_position.x / float(main.TILE))), int(floor(main.player.global_position.y / float(main.TILE))))
 	var boxw := 80.0
 	var boxh := 50.0
 	var scale: float = minf(boxw / float(rect.size.x), boxh / float(rect.size.y))
