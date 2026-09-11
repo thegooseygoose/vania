@@ -9,8 +9,8 @@ var t := 0.0
 var returning := false
 const OUT_TIME := 0.64        # flies out longer → about twice the distance
 const SPEED := 420.0
-const BULLET_SPEED := 300.0   # NEW BOOM (bullet): straight-line travel speed
-const BULLET_RANGE := 64.0    # travels this far (px), then stops & despawns
+const BULLET_SPEED := 240.0   # NES Metroid beam: BulletSpeedXTable = 4 px/frame (240 px/s)
+const BULLET_RANGE := 48.0    # NES short beam: dies after 12 frames x 4 px = 48px
 const BULLET_LIFE := 2.0      # safety despawn (also despawns if it goes off-screen)
 var _bullet_traveled := 0.0   # distance the bullet has flown
 const SPIN_FPS := 18.0        # boomerang.png frame cycle speed

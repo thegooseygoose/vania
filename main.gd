@@ -88,17 +88,17 @@ const GRAVITY := 1400.0               # base gravity; rise (holding) and fall ar
 const MAX_FALL := 200.0               # low terminal — Samus drifts down, never plummets
 # Metroid-ish feel with a RUN button: light responsive momentum, floaty jump. HOLD the run button
 # (keyboard Z / Shift, Xbox X) to move faster than a walk.
-const WALK_ACC := 360.0               # responsive ground ramp-up (~0.21s to top speed)
-const RUN_ACC := 420.0                # accelerates a touch harder to reach the higher run speed
-const AIR_ACC := 300.0                # good air steering (Metroid-style air control)
-const WALK_MAX := 77.0                # base walk speed (~1.3 px/frame, Metroid-ish)
+const WALK_ACC := 675.0               # NES Metroid: RunAccelerationTbl $30/256 px/frame^2 (= 675 px/s^2)
+const RUN_ACC := 675.0                # NES has one acceleration; the run button (an extra) only raises top speed
+const AIR_ACC := 675.0                # NES: the same $30 acceleration in the air
+const WALK_MAX := 90.0                # NES Metroid: SamusHorzSpeedMax $18 = 1.5 px/frame (= 90 px/s)
 const RUN_MAX := 125.0                # RUN (hold Z / Xbox X): ~1.6x walk. Faster ground speed only —
 									  # it does NOT add jump height/air-time (see _jump_speed_t)
 const FRICTION := 300.0               # a short, crisp slide to a stop — you won't slide into blocks
-const TURN_ACC := 600.0               # crisp turn when reversing (no sluggish drift)
+const TURN_ACC := 675.0               # NES: turning around uses the same $30 acceleration
 # NES-Metroid jump: a strong launch + soft rise/fall = a tall, floaty ~4-tile arc. Holding
 # jump floats a little higher than a tap (mild variable height, like Metroid).
-const JUMP_VELOCITY := -305.0        # tuned so the full jump apex = ~4 tiles (NES Metroid height)
+const JUMP_VELOCITY := -305.0        # DOUBLE JUMP + water hop launch only (the ground jump is NES: player.NES_JUMP_V)
 const JUMP_VELOCITY_RUN := -305.0    # == JUMP_VELOCITY: momentum no longer adds jump height
 const JUMP_HOLD_GRAV := 0.5          # rising while holding = ~700 g → ~4-tile floaty apex
 # Descent gravity scale — a soft Metroid fall (a touch faster than the rise, still floaty).

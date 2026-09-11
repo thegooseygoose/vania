@@ -180,8 +180,24 @@ var hurt_lock := 0.0             # brief control lock after a hit so the knockba
 var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
 const DOOR_WALK_SPEED := 0.7    # fraction of walk speed for the door cutscene stroll (lower = slower)
 const HURT_KNOCK_X := 150.0      # horizontal knockback (shoved opposite to facing)
-const HURT_KNOCK_UP := -200.0    # upward pop on a hit
+const HURT_KNOCK_UP := -180.0    # upward pop on a hit — NES Metroid: $FD = -3 px/frame
 const HURT_LOCK_TIME := 0.3      # seconds movement input is ignored after a hit
+# ---- NES METROID physics, from the NES engine disassembly (metroidret/m1disasm prg7_engine.asm).
+# NES speeds are px/frame at 60fps (x60 = px/s); gravity is added in 1/256 px/frame per frame. ----
+const NES_JUMP_V := -240.0       # SetSamusJump: speedY = $FC = -4 px/frame
+const NES_JUMP_GRAV := 337.5     # $18/256 px/f^2 — the WHOLE ground jump, rising and falling
+const NES_LEDGE_GRAV := 365.6    # $1A/256 — falling that isn't part of a jump (walked off a ledge)
+const NES_HIT_GRAV := 787.5      # $38/256 — the knockback arc after taking a hit
+const NES_MAX_FALL := 300.0      # VertAccelerate: max downward speed 5 px/frame
+const NES_MIN_JUMP := 32.0       # SamusJump: a jump always rises 32px; after that, releasing Jump stops the rise
+const NES_AIR_STAND := 60.0      # standing jump: horizontal speed SET to 1 px/frame each frame (no momentum)
+const NES_AIR_RUN := 67.5        # running jump: SamusHorzSpeedMax = $12 = 1.125 px/frame
+const NES_STOP := 20000.0        # letting go on the ground stops Samus dead (StopHorzMovement)
+const NES_HURT_INVULN := 0.833   # CheckHealthStatus: blink / invincible for 50 frames
+var _nes_jump := false           # in an NES ground jump until landing (NES_JUMP_GRAV + the release cut)
+var _nes_run_jump := false       # that jump started while moving (running-jump air rules)
+var _jump_y0 := 0.0              # y where the jump started (for the 32px minimum rise)
+var _hit_arc := false            # knocked back by a hit -> NES_HIT_GRAV until landing
 const MAX_HP := 100              # numeric health: starts at 100
 const HP_PER_HIT := 10           # each hit costs 10; death at 0
 var hp := MAX_HP                 # current health (0..100). Reset to full on spawn.
@@ -531,6 +547,9 @@ func _update_alive(delta: float) -> void:
 		if slamming:
 			slamming = false
 			_do_slam_break()
+	if on_floor and velocity.y >= 0.0:
+		_nes_jump = false               # landed: the NES jump / knockback arc is over
+		_hit_arc = false
 
 	# BIKE on/off — press the bike button (RB on the controller / E on the keyboard). Near a
 	# bike → hop on; already riding → hop off. It's an explicit toggle, so you never auto-mount
@@ -632,6 +651,7 @@ func _update_alive(delta: float) -> void:
 			boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
 			velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back
 			velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
+			_nes_jump = false          # the recoil pop keeps its floaty arc (not cut by the NES jump release)
 		main.sfx("shot")                                  # gun shot (own sound; "fireball" stays for enemy/Mario fire)
 
 	if wall_lock > 0.0:
@@ -648,6 +668,14 @@ func _update_alive(delta: float) -> void:
 	if riding:
 		max_s *= BIKE_MOVE            # the bike creeps along at 1/4 speed
 		acc *= BIKE_MOVE
+	# NES METROID air control for a ground jump: a RUNNING jump is capped at 1.125 px/frame; a
+	# STANDING jump moves at a fixed 1 px/frame set straight from the D-pad (applied below).
+	var nes_air_stand := false
+	if not on_floor and _nes_jump and fling_t <= 0.0 and not submerged and not riding:
+		if _nes_run_jump:
+			max_s = minf(max_s, NES_AIR_RUN)
+		else:
+			nes_air_stand = true
 
 	# duck — big/fire Mario holding Down. ENTER only on the ground. A duck-jump stays
 	# ducked for the WHOLE airtime until it lands (even if Down is released mid-air);
@@ -703,11 +731,16 @@ func _update_alive(delta: float) -> void:
 		else:
 			velocity.x = move_toward(velocity.x, dir * max_s, acc * delta)
 	elif on_floor:
-		# no input on the ground — friction brings Mario to a stop. Ducking uses a
-		# lighter friction so a running duck slides a bit before stopping (SMB1).
+		# no input on the ground — NES Metroid stops Samus DEAD (StopHorzMovement). Speeds above normal
+		# walking pace (a recoil shove, the run extra, knockback) still slide off with the old friction.
 		var fr: float = DUCK_DECEL if ducking else main.FRICTION
+		if not ducking and hurt_lock <= 0.0 and absf(velocity.x) <= main.WALK_MAX + 0.5:
+			fr = NES_STOP
 		velocity.x = move_toward(velocity.x, 0.0, fr * delta)
 	# (no input in the air keeps horizontal momentum, like the real games)
+	# NES standing jump: horizontal speed is SET each frame (1 px/frame while held, 0 when released)
+	if nes_air_stand and wall_lock <= 0.0 and hurt_lock <= 0.0:
+		velocity.x = dir * NES_AIR_STAND
 
 	# DIAMOND wall-jump (Ninja Gaiden style): you CLING to any wall you're touching
 	# in mid-air — no need to hold into it. In a tight shaft touching both walls, it
@@ -740,9 +773,14 @@ func _update_alive(delta: float) -> void:
 		# The sqrt(grav_scale) keeps launch/gravity consistent so DISTANCE is tuned apart.
 		var st := _jump_speed_t()
 		var base_v0: float = lerpf(main.JUMP_VELOCITY, main.JUMP_VELOCITY_RUN, st)
-		velocity.y = base_v0 * sqrt(lerpf(1.0, main.JUMP_RUN_GRAV_SCALE, st))
 		if submerged:
-			velocity.y *= WATER_JUMP         # weak underwater hop
+			velocity.y = base_v0 * WATER_JUMP   # weak underwater hop (water physics unchanged)
+		else:
+			# NES METROID jump: launch at -4 px/frame ($FC), then one gravity ($18) for the whole arc
+			velocity.y = NES_JUMP_V
+			_nes_jump = true
+			_nes_run_jump = absf(velocity.x) > 8.0   # moving = running jump (air cap 1.125 px/f), else standing
+			_jump_y0 = global_position.y
 		jump_held = true
 		main.sfx("jump_big" if (big or fire) else "jump_small")
 	elif jump_key and not on_floor and not jump_held and wall_dir != 0:
@@ -754,10 +792,12 @@ func _update_alive(delta: float) -> void:
 		last_wall_dir = wall_dir
 		jump_held = true
 		air_jump_used = false      # a wall jump refreshes the mid-air jump
+		_nes_jump = false          # wall jump = an extra: keeps its own arc (original rise gravity)
 		main.sfx("jump_big" if (big or fire) else "jump_small")
 	elif jump_key and not on_floor and not jump_held and has_double_jump and not air_jump_used and not slamming and not submerged and not air_was_submerged:
 		# SQUARE: one extra jump in mid-air (NOT in/out of water — a single jump only there)
 		air_jump_used = true
+		_nes_jump = false          # double jump = an extra: keeps its own tuned arc (original rise gravity)
 		var st2 := _jump_speed_t()
 		velocity.y = lerpf(main.JUMP_VELOCITY, main.JUMP_VELOCITY_RUN, st2) * sqrt(lerpf(1.0, main.JUMP_RUN_GRAV_SCALE, st2))
 		if submerged:
@@ -800,7 +840,23 @@ func _update_alive(delta: float) -> void:
 			if fling_t > 0.0:
 				g *= FLING_GRAV                # only a SLIGHT gravity ease so the arc carries across
 											   # (no feather-fall — it lands naturally, not floaty)
+		# NES METROID gravity (overrides the tuned values above, except in water or a grapple fling):
+		# one gravity for the whole ground jump, heavier when knocked back, slightly heavier when you
+		# simply fall; max fall 5 px/frame. Non-jump upward pops (double/wall jump, recoil, bomb) keep
+		# the original rise gravity computed above, so those extras keep their tuned heights.
+		if not submerged and fling_t <= 0.0:
+			if _hit_arc:
+				g = NES_HIT_GRAV
+			elif _nes_jump:
+				g = NES_JUMP_GRAV
+			elif velocity.y >= 0.0:
+				g = NES_LEDGE_GRAV
+			fall_cap = NES_MAX_FALL
 		velocity.y = minf(velocity.y + g * delta, fall_cap)
+		# NES variable jump: after rising 32px, letting go of Jump stops the rise instantly.
+		if _nes_jump and not _hit_arc and velocity.y < 0.0 and not jump_key \
+				and _jump_y0 - global_position.y >= NES_MIN_JUMP:
+			velocity.y = 0.0
 		# HOVER JETS: hold Jump while falling to drift down gently until the fuel runs out
 		if has_hover and jump_key and velocity.y > 0.0 and hover_fuel > 0.0 and not submerged and wall_dir == 0:
 			velocity.y = minf(velocity.y, HOVER_FALL)
@@ -951,7 +1007,7 @@ func _exit_morph() -> bool:
 	return true
 
 
-const MORPH_SPEED := 1.5          # morph ball rolls 1.5x normal move speed
+const MORPH_SPEED := 1.0          # NES Metroid: the ball rolls at normal running speed (1.5 px/frame)
 var bomb_cd := 0.0               # cooldown before the next morph-ball bomb can be dropped
 const BOMB_COOLDOWN := 3.0       # you can place a bomb once every 3 seconds
 # SPRING BALL: hop height = 4 TILES (64px), but the motion is 25% SLOWER than a plain 412 pop:
@@ -968,6 +1024,7 @@ const BALL_BOUNCE_MAX := 280.0   # cap on the bounce speed
 # can bounce again next landing (lets you chain bomb-jumps).
 func bomb_bounced() -> void:
 	_ball_bounced = false
+	_nes_jump = false          # a bomb pop is its own arc, not the NES jump (no release cut)
 
 
 func _morph_physics(delta: float, on_floor: bool) -> void:
@@ -990,7 +1047,9 @@ func _morph_physics(delta: float, on_floor: bool) -> void:
 	if dir != 0.0:
 		velocity.x = move_toward(velocity.x, dir * max_s, acc * delta)
 	elif on_floor:
-		velocity.x = move_toward(velocity.x, 0.0, main.FRICTION * delta)
+		# NES: letting go stops the ball dead, like standing Samus; faster pushes still slide off
+		var bfr: float = NES_STOP if absf(velocity.x) <= max_s + 0.5 else main.FRICTION
+		velocity.x = move_toward(velocity.x, 0.0, bfr * delta)
 	var g: float = main.GRAVITY * (main.FALL_GRAV_SCALE if velocity.y >= 0.0 else (SPRING_RISE_GRAV if _spring_rising else 1.0))
 	velocity.y = minf(velocity.y + g * delta, main.MAX_FALL)
 	# SPRING BALL: with the power-up, JUMP hops the ball 2 tiles and STAYS rolled up (Up stands up).
@@ -1589,11 +1648,13 @@ func hurt() -> void:
 		hp = 0
 		kill()
 		return
-	invuln = 1.5
+	invuln = NES_HURT_INVULN     # NES Metroid: invincible (blinking) for 50 frames after a hit
 	# knockback: shoved back the way he's facing with an upward pop; hurt_lock briefly
 	# ignores movement input so the shove carries (see the movement input gate).
 	velocity.x = -float(facing) * HURT_KNOCK_X
 	velocity.y = HURT_KNOCK_UP
+	_hit_arc = true              # NES hit gravity ($38) until you land
+	_nes_jump = false
 	hurt_lock = HURT_LOCK_TIME
 	main.sfx("powerdown")
 
