@@ -42,7 +42,7 @@ const PARTIAL_TEX := {
 	Part.RIGHT: preload("res://sprites/door/door_right_partial.png"),
 }
 const PARTIAL_TIME := 0.09     # how long the partial (transition) frame shows when a half OPENS
-const CLOSE_TIME := 0.2        # ...and when it CLOSES — held longer so the door visibly swings shut
+const CLOSE_TIME := 0.45       # ...and when it CLOSES — held longer so the door visibly swings shut (another 50% slower than 0.3)
 var _partial_t := 0.0
 const FLASH_TIME := 1.8        # grey -> blue power-up: blinks 5 times slowly over this long
 const FLASH_BLINKS := 5

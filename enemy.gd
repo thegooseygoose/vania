@@ -580,6 +580,8 @@ func _spawn_explosion() -> void:
 	var fx := ExplosionFX.new()
 	parent.add_child(fx)
 	fx.global_position = global_position
+	if main:
+		main.sfx("explode")
 
 # =========================================================================
 # Zoomer movement — a boundary (wall) follower: it keeps the surface on one

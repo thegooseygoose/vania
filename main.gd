@@ -2698,7 +2698,7 @@ func enemy_shoot_fireball(pos: Vector2, dir: int, straight: bool = false) -> voi
 	add_child(fb)
 	fb.launch(pos, dir)
 	enemy_fireballs.append(fb)
-	sfx("fireball")
+	sfx("shot")                          # same sound as the player's gun
 
 # Drop a MORPH-BALL bomb at `pos` (called by the player while rolled up). Capped at MAX_BOMBS.
 func spawn_bomb(pos: Vector2) -> void:
@@ -2723,7 +2723,7 @@ func enemy_shoot_at(pos: Vector2, target: Vector2) -> void:
 	add_child(fb)
 	fb.launch_at(pos, target)
 	enemy_fireballs.append(fb)
-	sfx("fireball")
+	sfx("shot")                          # same sound as the player's gun
 
 func _update_enemy_fireballs() -> void:
 	var pr: Rect2 = player.get_rect()
@@ -5287,6 +5287,7 @@ func sfx(name: String) -> AudioStreamPlayer:
 		"shot": path = "res://audio/vania/sfx/shot.wav"         # the player's gun shot
 		"morph": path = "res://audio/vania/sfx/morph.wav"       # rolling into the morph ball
 		"grapple": path = "res://audio/vania/sfx/grapple.wav"   # firing the grapple arm
+		"explode": path = "res://audio/vania/sfx/explode.wav"   # enemy explosion (zoomer/serp/metroid/turret death)
 		"powerup_appear": path = "res://audio/mario sound/power up apear.wav"
 		"coin": path = "res://audio/mario sound/coin.mp3"
 		"brick": path = "res://audio/mario sound/break block.wav"

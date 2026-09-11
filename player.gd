@@ -179,12 +179,12 @@ var invuln := 0.0
 var hurt_lock := 0.0             # brief control lock after a hit so the knockback shove reads
 var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
 const DOOR_WALK_SPEED := 0.7    # fraction of walk speed for the door cutscene stroll (lower = slower)
-const HURT_KNOCK_X := 150.0      # horizontal knockback (shoved opposite to facing)
-const HURT_KNOCK_UP := -180.0    # upward pop on a hit — NES Metroid: $FD = -3 px/frame
+const HURT_KNOCK_X := 127.5      # horizontal knockback (shoved opposite to facing) — 15% less than 150
+const HURT_KNOCK_UP := -153.0    # upward pop on a hit — 15% less than -180 (NES Metroid: $FD = -3 px/frame)
 const HURT_LOCK_TIME := 0.3      # seconds movement input is ignored after a hit
 # ---- NES METROID physics, from the NES engine disassembly (metroidret/m1disasm prg7_engine.asm).
 # NES speeds are px/frame at 60fps (x60 = px/s); gravity is added in 1/256 px/frame per frame. ----
-const NES_JUMP_V := -240.0       # SetSamusJump: speedY = $FC = -4 px/frame
+const NES_JUMP_V := -217.9       # was -207.8 (25% lower than NES); +10% height on that (speed x sqrt(1.10))
 const NES_JUMP_GRAV := 337.5     # $18/256 px/f^2 — the WHOLE ground jump, rising and falling
 const NES_LEDGE_GRAV := 365.6    # $1A/256 — falling that isn't part of a jump (walked off a ledge)
 const NES_HIT_GRAV := 787.5      # $38/256 — the knockback arc after taking a hit
