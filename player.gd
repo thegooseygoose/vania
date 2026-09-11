@@ -615,7 +615,7 @@ func _update_alive(delta: float) -> void:
 			extending = true                 # shoot the claw out; it latches when it reaches gp
 			extend_target = gp
 			extend_time = 0.0
-			main.sfx("fireball")             # the "shoot" of firing the arm
+			main.sfx("grapple")              # the "shoot" of firing the arm (Bionic Commando sfx)
 	# BOOMERANG — its own button B on the controller, or C on the keyboard (the
 	# keyboard "shoot" only throws when we didn't just start a grapple this frame)
 	if has_boomerang and not morphed and (boomerang == null or not is_instance_valid(boomerang)) \
@@ -632,7 +632,7 @@ func _update_alive(delta: float) -> void:
 			boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
 			velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back
 			velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
-		main.sfx("fireball")
+		main.sfx("shot")                                  # gun shot (own sound; "fireball" stays for enemy/Mario fire)
 
 	if wall_lock > 0.0:
 		wall_lock = maxf(0.0, wall_lock - delta)
@@ -937,7 +937,7 @@ func _enter_morph() -> void:
 	sprite.texture = _ball_tex
 	sprite.position = Vector2(0, -1)   # morph ball sits 1px higher
 	sprite.rotation = 0.0
-	main.sfx("bump")
+	main.sfx("morph")                  # rolling-up sound (unrolling keeps the bump)
 
 
 func _exit_morph() -> bool:
@@ -979,6 +979,9 @@ func _morph_physics(delta: float, on_floor: bool) -> void:
 	var running := Input.is_action_pressed("run")
 	var max_s: float = (main.RUN_MAX if running else main.WALK_MAX) * MORPH_SPEED
 	var acc: float = ((main.RUN_ACC if running else main.WALK_ACC) if on_floor else main.AIR_ACC) * MORPH_SPEED
+	if submerged:                     # water drags the ball too, same as walking (skipped with the water power-up)
+		max_s *= WATER_MOVE
+		acc *= WATER_MOVE
 	var dir := 0.0
 	if Input.is_action_pressed("move_left"):
 		dir = -1.0; facing = -1

@@ -41,7 +41,8 @@ const PARTIAL_TEX := {
 	Part.LEFT: preload("res://sprites/door/door_left_partial.png"),
 	Part.RIGHT: preload("res://sprites/door/door_right_partial.png"),
 }
-const PARTIAL_TIME := 0.09     # how long the partial (transition) frame shows
+const PARTIAL_TIME := 0.09     # how long the partial (transition) frame shows when a half OPENS
+const CLOSE_TIME := 0.2        # ...and when it CLOSES — held longer so the door visibly swings shut
 var _partial_t := 0.0
 const FLASH_TIME := 1.8        # grey -> blue power-up: blinks 5 times slowly over this long
 const FLASH_BLINKS := 5
@@ -115,7 +116,7 @@ func _open_half() -> void:
 	set_process(true)
 	queue_redraw()
 	if main:
-		main.sfx("kick")
+		main.door_sfx()        # door OPEN (de-duplicated door sound)
 
 # Close the door back up (real Metroid: doors close behind you). Re-solid.
 func close() -> void:
@@ -123,11 +124,11 @@ func close() -> void:
 		return
 	_shot = false
 	_make_solid()
-	_partial_t = PARTIAL_TIME  # show the thin "partly closed" frame, then the full closed door
+	_partial_t = CLOSE_TIME    # show the thin "partly closed" frame (longer = slower close), then the full door
 	set_process(true)
 	queue_redraw()
 	if main:
-		main.sfx("bump")
+		main.door_sfx()        # door SHUT (same sound as opening)
 
 func _process(delta: float) -> void:
 	var busy := false

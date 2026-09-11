@@ -5261,6 +5261,18 @@ func toggle_mute() -> void:
 	else:
 		AudioServer.set_bus_mute(0, false)
 
+# Door open/shut sound, de-duplicated. A door walk-through shuts the near half and opens the far
+# half ~0.13s apart; with the 0.67s door sound those would stack into a doubled "flam", so a
+# repeat within DOOR_SFX_GAP is skipped (a real open and a later shut still both play).
+var _door_sfx_ms := -100000
+const DOOR_SFX_GAP := 250
+func door_sfx() -> void:
+	var now := Time.get_ticks_msec()
+	if now - _door_sfx_ms < DOOR_SFX_GAP:
+		return
+	_door_sfx_ms = now
+	sfx("door")
+
 func sfx(name: String) -> AudioStreamPlayer:
 	if muted:
 		return null
@@ -5270,7 +5282,11 @@ func sfx(name: String) -> AudioStreamPlayer:
 		"jump_big": path = "res://audio/vania/jump sound.wav"     # same sound for big/fire jumps
 		"stomp": path = "res://audio/mario sound/stromp.wav"
 		"powerup": path = "res://audio/mario sound/power up collect.wav"
-		"fanfare": path = "res://audio/vania/jingles/item_get.wav"   # Metroid item-acquisition jingle, dead air trimmed (world freezes while it plays)
+		"fanfare": path = "res://audio/vania/sfx/item_get.wav"   # Metroid item-acquisition jingle, dead air trimmed (world freezes while it plays)
+		"door": path = "res://audio/vania/sfx/door.wav"         # blue door opening AND shutting
+		"shot": path = "res://audio/vania/sfx/shot.wav"         # the player's gun shot
+		"morph": path = "res://audio/vania/sfx/morph.wav"       # rolling into the morph ball
+		"grapple": path = "res://audio/vania/sfx/grapple.wav"   # firing the grapple arm
 		"powerup_appear": path = "res://audio/mario sound/power up apear.wav"
 		"coin": path = "res://audio/mario sound/coin.mp3"
 		"brick": path = "res://audio/mario sound/break block.wav"
