@@ -45,6 +45,8 @@ var duck_locked := false        # a duck-jump stays ducked until it lands (ignor
 var has_double_jump := false    # SQUARE: one extra jump in mid-air
 var has_break := false          # TRIANGLE: jump then Down to slam & break blocks below
 var has_morph := false          # CIRCLE: press Down on the ground to become a morph ball
+var has_bombs := false          # BOMB pickup: lets the morph ball drop bombs (needs the ball too)
+var has_balljump := false       # SPRING BALL pickup: the morph ball can jump (2 tiles) without unrolling
 var has_walljump := false       # DIAMOND: slide down walls and leap off them
 var has_grapple := false        # STAR: shoot X near a grab point to zip up to it
 var has_boomerang := false      # BOOMERANG: press X to throw a returning boomerang
@@ -126,7 +128,8 @@ var slam_timer := 0.0
 # ---- WATER (Super Metroid style) -------------------------------------------
 # You don't swim — you still walk/jump — but while submerged everything is heavily
 # slowed: move speed, jump height and fall all drop. main.in_water() marks the zones.
-const WATER_MOVE := 0.5         # horizontal top-speed + acceleration multiplier in water
+const WATER_MOVE := 0.25        # horizontal top-speed + acceleration multiplier in water (halved from 0.5;
+								#  only applies WITHOUT the water power-up — has_waterwalk skips water physics)
 const WATER_JUMP := 0.72        # jump-launch multiplier — a small ~1-tile hop off footing
 const WATER_GRAV := 0.42        # gravity multiplier in water (applies to BOTH rise and sink,
 								# so the hop pops once with no floaty hold-jump rise)
@@ -378,6 +381,8 @@ func spawn(feet_pos: Vector2) -> void:
 	has_double_jump = bool(ab.get("double_jump", false))
 	has_break = bool(ab.get("break", false))
 	has_morph = bool(ab.get("morph", false))
+	has_bombs = bool(ab.get("bombs", false))
+	has_balljump = bool(ab.get("balljump", false))
 	has_walljump = bool(ab.get("walljump", false))
 	has_grapple = bool(ab.get("grapple", false))
 	has_boomerang = true    # SHOT: always start with it (the bullet weapon), regardless of pickups
@@ -546,6 +551,8 @@ func _update_alive(delta: float) -> void:
 				bike = b
 				main.sfx("powerup")
 
+	if bomb_cd > 0.0:                 # morph-ball bomb cooldown (ticks every frame, even while rolled up)
+		bomb_cd = maxf(0.0, bomb_cd - delta)
 	# CIRCLE: morph ball has its own physics — enter with Down on the ground, then
 	# roll around; Up or Jump stands back up (if there's room).
 	if has_morph and not morphed and on_floor and not was_riding and Input.is_action_just_pressed("move_down"):
@@ -611,7 +618,7 @@ func _update_alive(delta: float) -> void:
 			main.sfx("fireball")             # the "shoot" of firing the arm
 	# BOOMERANG — its own button B on the controller, or C on the keyboard (the
 	# keyboard "shoot" only throws when we didn't just start a grapple this frame)
-	if has_boomerang and (boomerang == null or not is_instance_valid(boomerang)) \
+	if has_boomerang and not morphed and (boomerang == null or not is_instance_valid(boomerang)) \
 			and (Input.is_action_just_pressed("boomerang") \
 				or (not grappling and not extending and Input.is_action_just_pressed("shoot"))):
 		var aim_up := _facing_up()   # only shoot UP when actually FACING up (standing still / jumping) — not while walking
@@ -945,11 +952,30 @@ func _exit_morph() -> bool:
 
 
 const MORPH_SPEED := 1.5          # morph ball rolls 1.5x normal move speed
+var bomb_cd := 0.0               # cooldown before the next morph-ball bomb can be dropped
+const BOMB_COOLDOWN := 3.0       # you can place a bomb once every 3 seconds
+# SPRING BALL: hop height = 4 TILES (64px), but the motion is 25% SLOWER than a plain 412 pop:
+# launch speed x0.75 (412 -> 309) with LIGHTER gravity only while rising (SPRING_RISE_GRAV), so
+# the apex stays at 4 tiles. apex ~ v^2/(2*g*k) + v/120 = 64px  ->  k ~= 0.555.
+const BALL_JUMP := 309.0
+const SPRING_RISE_GRAV := 0.555
+var _spring_rising := false      # true from a spring hop until its apex (uses SPRING_RISE_GRAV)
 var _ball_bounced := false       # true after a drop's ONE bounce, until the ball settles again
 const BALL_BOUNCE_MIN := 100.0   # only bounce when landing faster than this (a real drop, not a step)
 const BALL_BOUNCE_FACTOR := 1.0  # bounce keeps this fraction of the impact speed (1.0 = ~2x the old hop)
 const BALL_BOUNCE_MAX := 280.0   # cap on the bounce speed
+# A morph-ball bomb popped the ball upward — clear the one-shot landing-bounce latch so the ball
+# can bounce again next landing (lets you chain bomb-jumps).
+func bomb_bounced() -> void:
+	_ball_bounced = false
+
+
 func _morph_physics(delta: float, on_floor: bool) -> void:
+	# BOMB: while rolled up, the shoot button DROPS a morph-ball bomb (Metroid) — but only once every
+	# BOMB_COOLDOWN (6s); the rest of the time the button does nothing in ball mode.
+	if has_bombs and bomb_cd <= 0.0 and (Input.is_action_just_pressed("shoot") or Input.is_action_just_pressed("boomerang")):
+		main.spawn_bomb(global_position + Vector2(0.0, col_size.y * 0.5 - 3.0))
+		bomb_cd = BOMB_COOLDOWN
 	var running := Input.is_action_pressed("run")
 	var max_s: float = (main.RUN_MAX if running else main.WALK_MAX) * MORPH_SPEED
 	var acc: float = ((main.RUN_ACC if running else main.WALK_ACC) if on_floor else main.AIR_ACC) * MORPH_SPEED
@@ -962,11 +988,18 @@ func _morph_physics(delta: float, on_floor: bool) -> void:
 		velocity.x = move_toward(velocity.x, dir * max_s, acc * delta)
 	elif on_floor:
 		velocity.x = move_toward(velocity.x, 0.0, main.FRICTION * delta)
-	var g: float = main.GRAVITY * (main.FALL_GRAV_SCALE if velocity.y >= 0.0 else 1.0)
+	var g: float = main.GRAVITY * (main.FALL_GRAV_SCALE if velocity.y >= 0.0 else (SPRING_RISE_GRAV if _spring_rising else 1.0))
 	velocity.y = minf(velocity.y + g * delta, main.MAX_FALL)
-	# stand back up (Up or Jump), if there's room. Pressing jump just STANDS UP — it does NOT jump
-	# out of the ball; jump_held blocks the held-jump from firing a jump the frame after standing.
-	if Input.is_action_just_pressed("jump") or Input.is_action_just_pressed("move_up"):
+	# SPRING BALL: with the power-up, JUMP hops the ball 2 tiles and STAYS rolled up (Up stands up).
+	# Without it, Jump or Up both just stand you back up (if there's room); jump_held blocks the
+	# held-jump from firing a jump the frame after standing.
+	if has_balljump and Input.is_action_just_pressed("jump"):
+		if on_floor:
+			velocity.y = -BALL_JUMP
+			_spring_rising = true           # lighter rise gravity until the apex (slower, same height)
+			_ball_bounced = true            # this hop isn't a landing-bounce
+			main.sfx("jump")
+	elif Input.is_action_just_pressed("jump") or Input.is_action_just_pressed("move_up"):
 		if _exit_morph():
 			jump_held = true
 			return

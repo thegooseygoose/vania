@@ -1732,6 +1732,9 @@ var _door_cam_hold := 0.0       # camera HOLDS on the current room this long bef
 const DOOR_CAM_HOLD := 0.65      # seconds to linger on the sector you entered from before the shift
 var _cam_lock := false          # after a door walk: freeze Mario + enemies until the camera settles into the new room
 var bikes: Array = []           # Bike nodes (press the bike button near one to mount)
+var bombs: Array = []           # active MORPH-BALL bombs (capped so the screen stays sane)
+const MAX_BOMBS := 3            # Metroid: up to 3 live bombs at once
+const BombNode := preload("res://bomb.gd")
 
 # Vania: erase the painted stand-in flagpole (atlas 5 base + 6 pole) and house
 # (atlas 7) tiles — those atlas ids are used ONLY for that structure.
@@ -1749,6 +1752,7 @@ func _wire_powerups() -> void:
 	door_parts.clear()
 	grey_doors.clear()
 	bikes.clear()
+	bombs.clear()
 	save_stations.clear()
 	_sector_rects.clear()
 	_cam_room = Rect2()
@@ -2028,13 +2032,14 @@ func _end_door_walk() -> void:
 	_cam_lock = true
 
 
-const _ABILITY_KEYS := ["double_jump", "break", "morph", "walljump", "grapple", "boomerang", "waterwalk"]
+const _ABILITY_KEYS := ["double_jump", "break", "morph", "bombs", "balljump", "walljump", "grapple", "boomerang", "waterwalk"]
 
 # snapshot the player's current abilities + this spot as the respawn point, and write the save file
 func save_checkpoint(pos: Vector2) -> void:
 	saved_abilities = {
 		"double_jump": player.has_double_jump, "break": player.has_break,
-		"morph": player.has_morph, "walljump": player.has_walljump,
+		"morph": player.has_morph, "bombs": player.has_bombs,
+		"balljump": player.has_balljump, "walljump": player.has_walljump,
 		"grapple": player.has_grapple, "boomerang": player.has_boomerang,
 		"waterwalk": player.has_waterwalk, "dash": player.has_dash,
 		"riderkick": player.has_riderkick, "timeslow": player.has_timeslow, "hover": player.has_hover,
@@ -2141,7 +2146,8 @@ const BIKE_TILE_ATLAS := 59     # bike tile (Powerups layer) = spawns a rideable
 # 48 morph, 49 double jump, 50 brick break, 51 grapple, 52 boomerang, 53 wall jump, 54 water gravity.
 const POWERUP_TILE_SHAPE := {48: "circle", 49: "square", 50: "triangle", 51: "star",
 	52: "boomerang", 53: "diamond", 54: "waterwalk", 55: "dash", 56: "riderkick",
-	57: "timeslow", 58: "hover"}
+	57: "timeslow", 58: "hover", 65: "balljump", 66: "bomb"}
+	# NOTE: 59 is NOT free — it's BIKE_TILE_ATLAS (bike spawner), so the bomb lives at 66.
 
 var goal_cells: Array = []
 var powerup_tile_cells: Array = []    # painted power-up tiles as [cell, shape] (grant on touch)
@@ -2240,6 +2246,8 @@ func collect_powerup(shape: String) -> void:
 		"square": player.has_double_jump = true
 		"triangle": player.has_break = true
 		"circle": player.has_morph = true
+		"bomb": player.has_bombs = true
+		"balljump": player.has_balljump = true
 		"diamond": player.has_walljump = true
 		"star": player.has_grapple = true
 		"boomerang": player.has_boomerang = true
@@ -2249,12 +2257,14 @@ func collect_powerup(shape: String) -> void:
 		"timeslow": player.has_timeslow = true
 		"hover": player.has_hover = true
 	# Mario-style power-up get: freeze the whole world + pause the music while a jingle plays
-	powerup_freeze_t = 2.85
+	powerup_freeze_t = 4.4        # = item_get.wav length (4.36s, silence trimmed) so music resumes as it ends
 	if music_player:
 		music_player.stream_paused = true
 	sfx("fanfare")
 	var msg := {"square": "DOUBLE JUMP!", "triangle": "GROUND POUND!  (jump, then Down)",
 		"circle": "MORPH BALL!  (press Down)", "diamond": "WALL JUMP!  (jump off walls)",
+		"bomb": "MORPH BOMBS!  (roll up, then shoot)",
+		"balljump": "SPRING BALL!  (press Jump while rolled up)",
 		"star": "GRAPPLE BEAM!  (hold Y/C to swing, release to launch)", "boomerang": "SHOT!  (C, or B on controller)",
 		"waterwalk": "GRAVITY SUIT  YOU CAN MOVE FREELY THROUGH WATER", "dash": "DASH ATTACK!  (press F / LB to lunge)",
 		"riderkick": "RIDER KICK!  (jump, then K / RT to dive-kick)",
@@ -2689,6 +2699,19 @@ func enemy_shoot_fireball(pos: Vector2, dir: int, straight: bool = false) -> voi
 	fb.launch(pos, dir)
 	enemy_fireballs.append(fb)
 	sfx("fireball")
+
+# Drop a MORPH-BALL bomb at `pos` (called by the player while rolled up). Capped at MAX_BOMBS.
+func spawn_bomb(pos: Vector2) -> void:
+	bombs = bombs.filter(func(b): return is_instance_valid(b))
+	if bombs.size() >= MAX_BOMBS:
+		return
+	var b = BombNode.new()
+	b.main = self
+	var host = level if level != null else self
+	host.add_child(b)             # child of the level so it's freed when the level unloads
+	b.global_position = pos
+	bombs.append(b)
+	sfx("bump")                   # the "clink" of setting it down
 
 # Aimed enemy shot: a straight projectile fired directly AT `target` (the ceiling turret's attack).
 func enemy_shoot_at(pos: Vector2, target: Vector2) -> void:
@@ -5247,7 +5270,7 @@ func sfx(name: String) -> AudioStreamPlayer:
 		"jump_big": path = "res://audio/vania/jump sound.wav"     # same sound for big/fire jumps
 		"stomp": path = "res://audio/mario sound/stromp.wav"
 		"powerup": path = "res://audio/mario sound/power up collect.wav"
-		"fanfare": path = "res://audio/fanfare_2x.wav"   # power-up-get jingle (2x length; world freezes while it plays)
+		"fanfare": path = "res://audio/vania/jingles/item_get.wav"   # Metroid item-acquisition jingle, dead air trimmed (world freezes while it plays)
 		"powerup_appear": path = "res://audio/mario sound/power up apear.wav"
 		"coin": path = "res://audio/mario sound/coin.mp3"
 		"brick": path = "res://audio/mario sound/break block.wav"
