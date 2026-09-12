@@ -43,6 +43,8 @@ const ATLAS_MUSHROOM := 12
 # pipe(17-20) are plain solids (collision only, no bump code); only these two act:
 const ATLAS_USED_PURPLE := 21
 const ATLAS_BRICK_PURPLE := 22
+const ATLAS_BLOCK_NORMAL := 67    # BLOKZ.png "BLOCK 1" — plain solid, no special behaviour
+const ATLAS_BLOCK_BREAKABLE := 68 # BLOKZ.png "BLOCK 2" — breaks the same way as a brick
 # alt ? blocks: same orange ? face + pulse as ATLAS_QUESTION/ATLAS_MUSHROOM, but
 # they turn into the PURPLE used block (ATLAS_USED_PURPLE) when hit.
 const ATLAS_QUESTION_PURPLE := 23
@@ -1700,7 +1702,7 @@ func _spawn_coins() -> void:
 # =========================================================================
 # ---- Vania power-ups -------------------------------------------------------
 # The TRIANGLE down-slam breaks ONLY brick blocks (the classic brick-pattern tile).
-const SMASHABLE := [ATLAS_BRICK, ATLAS_BRICK_PURPLE]
+const SMASHABLE := [ATLAS_BRICK, ATLAS_BRICK_PURPLE, ATLAS_BLOCK_BREAKABLE]
 
 func smash_tile(tx: int, ty: int) -> int:
 	var coord := Vector2i(tx, ty)
