@@ -603,6 +603,8 @@ func _zoom_solid(c: Vector2i) -> bool:
 	if src < 0:
 		return false
 	var ax: int = main.terrain.get_cell_atlas_coords(c).x
+	if ax == main.ATLAS_BLOCK_NORMAL or ax == main.ATLAS_BLOCK_BREAKABLE or ax >= main.WALL_PALETTE_START:
+		return true                                      # BLOKZ blocks ARE real terrain to hug
 	# don't cling to water / lava / hook / painted-special tiles — only real terrain
 	if ax >= main.ATLAS_WATER_TOP:                       # 45+ = water, hook, powerups, goal
 		return false

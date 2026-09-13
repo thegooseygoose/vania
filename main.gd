@@ -45,6 +45,8 @@ const ATLAS_USED_PURPLE := 21
 const ATLAS_BRICK_PURPLE := 22
 const ATLAS_BLOCK_NORMAL := 67    # BLOKZ.png "BLOCK 1" — plain solid, no special behaviour
 const ATLAS_BLOCK_BREAKABLE := 68 # BLOKZ.png "BLOCK 2" — breaks the same way as a brick
+const WALL_PALETTE_START := 69    # Level29 regional wall-color tiles (69-80) — real solid terrain,
+								   # same "≥47 isn't real footing" trap as BLOKZ, needs the same exceptions
 # alt ? blocks: same orange ? face + pulse as ATLAS_QUESTION/ATLAS_MUSHROOM, but
 # they turn into the PURPLE used block (ATLAS_USED_PURPLE) when hit.
 const ATLAS_QUESTION_PURPLE := 23
@@ -774,8 +776,8 @@ var sfx_volume := 1.0      # 0..1 user multiplier, on top of SFX_VOL  (pause men
 const SETTINGS_PATH := "user://settings.cfg"
 
 # full-screen display filter picked in the pause menu (see filter.gdshader)
-var filter_mode := 0       # 0 = REGULAR, 1 = CRT, 2 = INVERTED
-const FILTER_NAMES := ["REGULAR", "CRT", "INVERTED"]
+var filter_mode := 0       # 0 = REGULAR, 1 = CRT, 2 = INVERTED, 3 = GAMEBOY
+const FILTER_NAMES := ["REGULAR", "CRT", "INVERTED", "GAMEBOY"]
 var filter_layer: CanvasLayer
 var filter_rect: ColorRect
 
@@ -1042,8 +1044,11 @@ func _terrain_extent_no_deco() -> Rect2i:
 	var max_c := Vector2i(-2147483648, -2147483648)
 	var any := false
 	for cell in terrain.get_used_cells():
-		if terrain.get_cell_atlas_coords(cell).x >= BLACK_TILE_ATLAS:   # 60 black, 61 navy = decorative
-			continue
+		var ax: int = terrain.get_cell_atlas_coords(cell).x
+		if ax == BLACK_TILE_ATLAS or ax == BLACK_TILE_ATLAS + 1:   # 60 black, 61 navy = decorative only
+			continue                    # (a blanket ">=" here used to also swallow real solid tiles
+										 # numbered above 60, like the BLOKZ blocks at 67/68 — those
+										 # ARE real terrain and must grow the level's camera bounds)
 		any = true
 		min_c.x = mini(min_c.x, cell.x); min_c.y = mini(min_c.y, cell.y)
 		max_c.x = maxi(max_c.x, cell.x); max_c.y = maxi(max_c.y, cell.y)
@@ -3045,7 +3050,14 @@ func _update_camera() -> void:
 	var rooms: bool = ROOM_LEVELS.has(_level_file)
 	if not rooms:
 		# plain FREE camera: follow both ways, clamped to the whole painted level
-		cam_x = clampf(player.global_position.x - VIEW_W / 2.0, lvl_left, maxf(lvl_left, lvl_right - float(VIEW_W)))
+		var target_cx: float = clampf(player.global_position.x - VIEW_W / 2.0, lvl_left, maxf(lvl_left, lvl_right - float(VIEW_W)))
+		if player != null and player.door_walk != 0:
+			# EASE during a door walk-through specifically (was a hard snap every frame, which read
+			# as jerky/disorienting through the transition) — normal free-roam camera stays a direct
+			# follow, unchanged.
+			cam_x = lerp(cam_x, target_cx, clampf(6.0 * get_physics_process_delta_time(), 0.0, 1.0))
+		else:
+			cam_x = target_cx
 		_cam_lock = false
 	elif _door_walk_pair != null:
 		# door cutscene. First HOLD on the sector you entered from (linger a beat), THEN glide smoothly

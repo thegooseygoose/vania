@@ -180,6 +180,7 @@ const SHRINK_FRAME := ["shrink4", "shrink1"]        # 0 small (D), 1 big (A)
 var invuln := 0.0
 var hurt_lock := 0.0             # brief control lock after a hit so the knockback shove reads
 var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
+var _door_step_done := false    # one-shot guard so the door-threshold step-up hop only fires once
 const DOOR_WALK_SPEED := 0.595  # fraction of walk speed for the door cutscene stroll (lower = slower; was 0.7, -15%)
 const HURT_KNOCK_X := 127.5      # horizontal knockback (shoved opposite to facing) — 15% less than 150
 const HURT_KNOCK_UP := -153.0    # upward pop on a hit — 15% less than -180 (NES Metroid: $FD = -3 px/frame)
@@ -444,6 +445,8 @@ func spawn(feet_pos: Vector2) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	queue_redraw()   # keep procedural overlays (HAL2's gun, the grapple claw) current every frame —
+	                 # _draw() only re-runs when this is called, not automatically on state changes
 	if main.paused:
 		return
 	if main.axe_ending:
@@ -628,7 +631,7 @@ func _update_alive(delta: float) -> void:
 			grappling = true
 			grapple_target = extend_target
 			rope_len = clampf((global_position + _fist_off()).distance_to(extend_target), ROPE_MIN, ROPE_MAX)
-			main.sfx("fireball")    # the "clink" of grabbing on
+			main.sfx("bump")        # the "clink" of grabbing on (placeholder — was mistakenly using the fireball sfx)
 	# GRAPPLE — keyboard X/K (shoot) near a grab point, or the controller Y (grapple): FIRE the claw
 	if has_grapple and not grappling and not extending and (Input.is_action_just_pressed("shoot") or Input.is_action_just_pressed("grapple")):
 		var gp: Vector2 = main.nearest_grab_point(global_position, GRAPPLE_RANGE)
@@ -1285,6 +1288,17 @@ func _draw() -> void:
 		draw_texture_rect_region(tex, Rect2(dest - t, src.size), src)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)      # reset
 
+	# HAL 2: placeholder art has no arms/weapon drawn, so his gun is a procedural overlay — a
+	# short barrel held out in the facing direction, swinging to point straight up above his head
+	# while aiming up (mirrors _facing_up(), the same check the shot code uses for its direction).
+	if main.selected_char == "hal2" and not grappling and not extending and not morphed:
+		const GUN_COLOR := Color(0.85, 0.15, 0.15)   # bright red — easy to spot against his blue suit
+		if _facing_up():
+			draw_rect(Rect2(-1.5, -20.0, 3.0, 8.0), GUN_COLOR)     # barrel above the head
+		else:
+			var gx: float = 6.0 if facing >= 0 else -14.0
+			draw_rect(Rect2(gx, -5.0, 8.0, 3.0), GUN_COLOR)        # barrel at chest height
+
 
 # Copy one claw's box out of the sheet into its own texture, keeping ONLY the largest
 # 8-connected opaque blob so a neighbouring claw whose bounding box overlaps this one can't
@@ -1352,6 +1366,8 @@ func _blocked_above(stand_h: float) -> bool:
 		for c in range(c0, c1 + 1):
 			if main.terrain.get_cell_source_id(Vector2i(c, r)) >= 0:
 				var ax: int = main.terrain.get_cell_atlas_coords(Vector2i(c, r)).x
+				if ax == main.ATLAS_BLOCK_NORMAL or ax == main.ATLAS_BLOCK_BREAKABLE or ax >= main.WALL_PALETTE_START:
+					return true                # BLOKZ blocks ARE a real ceiling
 				if ax == main.ATLAS_WATER or ax == main.ATLAS_WATER_TOP \
 						or ax == main.ATLAS_LAVA or ax == main.ATLAS_LAVA_TOP \
 						or ax >= main.HOOK_TILE_ATLAS or ax == main.GOAL_TILE_ATLAS:
@@ -1374,7 +1390,8 @@ func _sunk_top(px: float, feet_y: float) -> float:
 		var ax: int = main.terrain.get_cell_atlas_coords(c).x
 		var is_water: bool = ax == main.ATLAS_WATER_TOP or ax == main.ATLAS_WATER
 		var is_lava: bool = ax == main.ATLAS_LAVA_TOP or ax == main.ATLAS_LAVA
-		var is_deco: bool = ax >= main.HOOK_TILE_ATLAS or ax == main.GOAL_TILE_ATLAS   # hook + power-up + goal: no footing
+		var is_deco: bool = (ax >= main.HOOK_TILE_ATLAS or ax == main.GOAL_TILE_ATLAS) \
+				and ax != main.ATLAS_BLOCK_NORMAL and ax != main.ATLAS_BLOCK_BREAKABLE and ax < main.WALL_PALETTE_START   # hook + power-up + goal: no footing (BLOKZ blocks DO give footing)
 		if not is_water and not is_deco and not (is_lava and not riding):
 			var top: float = float(r) * main.TILE
 			if feet_y > top and feet_y - top <= SUNK_MAX:
@@ -1394,6 +1411,8 @@ func _wall_ahead(d: float) -> bool:
 		var c := Vector2i(col, r)
 		if main.terrain.get_cell_source_id(c) >= 0:
 			var ax: int = main.terrain.get_cell_atlas_coords(c).x
+			if ax == main.ATLAS_BLOCK_NORMAL or ax == main.ATLAS_BLOCK_BREAKABLE or ax >= main.WALL_PALETTE_START:
+				return true                    # BLOKZ blocks ARE a real wall
 			if ax != main.ATLAS_LAVA_TOP and ax != main.ATLAS_LAVA \
 					and ax != main.ATLAS_WATER_TOP and ax != main.ATLAS_WATER \
 					and ax < main.HOOK_TILE_ATLAS and ax != main.GOAL_TILE_ATLAS:
@@ -1425,8 +1444,9 @@ func _ground_top_at(px: float, feet_y: float) -> float:
 				continue                       # water gives NO footing — you drop through
 			if (ax == main.ATLAS_LAVA or ax == main.ATLAS_LAVA_TOP) and not riding:
 				continue                       # lava = no footing... unless you're on the bike
-			if ax >= main.HOOK_TILE_ATLAS or ax == main.GOAL_TILE_ATLAS:
-				continue                       # hook + power-up + goal give NO footing
+			if (ax >= main.HOOK_TILE_ATLAS or ax == main.GOAL_TILE_ATLAS) \
+					and ax != main.ATLAS_BLOCK_NORMAL and ax != main.ATLAS_BLOCK_BREAKABLE and ax < main.WALL_PALETTE_START:
+				continue                       # hook + power-up + goal give NO footing (BLOKZ blocks DO)
 			var top: float = float(r) * main.TILE
 			if top >= feet_y - CARRY_FALL and top <= feet_y + 6.0:
 				return top
@@ -1457,10 +1477,11 @@ func _handle_head_bump() -> void:
 		if main.terrain.get_cell_source_id(Vector2i(col, row)) < 0:
 			continue                                  # only solid tiles are bumpable
 		var hax: int = main.terrain.get_cell_atlas_coords(Vector2i(col, row)).x
-		if hax == main.ATLAS_WATER or hax == main.ATLAS_WATER_TOP \
+		if (hax == main.ATLAS_WATER or hax == main.ATLAS_WATER_TOP \
 				or hax == main.ATLAS_LAVA or hax == main.ATLAS_LAVA_TOP \
-				or hax >= main.HOOK_TILE_ATLAS or hax == main.GOAL_TILE_ATLAS:
-			continue                                  # water/lava/hook/power-up icons never bonk the head
+				or hax >= main.HOOK_TILE_ATLAS or hax == main.GOAL_TILE_ATLAS) \
+				and hax != main.ATLAS_BLOCK_NORMAL and hax != main.ATLAS_BLOCK_BREAKABLE and hax < main.WALL_PALETTE_START:
+			continue                                  # water/lava/hook/power-up icons never bonk the head (BLOKZ blocks do)
 		var tile_l: float = col * main.TILE
 		var overlap: float = minf(right, tile_l + main.TILE) - maxf(left, tile_l)
 		if overlap > best_overlap:
@@ -1724,8 +1745,25 @@ func _spawn_death_explosion() -> void:
 
 # Cutscene walk through a door (Main drives the direction + opens/closes the halves). No input:
 # just stroll at walk speed in `door_walk`, keep gravity so he stays on the floor.
+const DOOR_STEP_HOP := -235.0   # gentle upward pop (px/s) that carries the player up a 1-tile lip
+                                 # smoothly via normal gravity (reaches ~19px, safely over 16px),
+                                 # instead of teleporting the position
 func _door_walk_physics(delta: float) -> void:
 	facing = door_walk
+	# STEP-UP ASSIST: this simplified auto-walk has no normal step-climb logic, so a 1-tile
+	# floor-height mismatch right at a door threshold (common with the algorithmically-placed real
+	# doors on Level29 — the approach floor and the floor under the door itself are often off by
+	# exactly one tile) would otherwise wedge the player against the lip and freeze the transition
+	# forever. A gentle one-shot hop carries the player up smoothly (no instant teleport-pop, which
+	# read as jarring/disorienting mid-transition).
+	if not morphed and not _door_step_done:
+		var ahead_col: int = int(floor((global_position.x + float(door_walk) * (col_size.x / 2.0 + 2.0)) / main.TILE))
+		var foot_row: int = int(floor((global_position.y + col_size.y / 2.0 - 1.0) / main.TILE))
+		if main.terrain.get_cell_source_id(Vector2i(ahead_col, foot_row)) >= 0 \
+				and main.terrain.get_cell_source_id(Vector2i(ahead_col, foot_row - 1)) < 0 \
+				and main.terrain.get_cell_source_id(Vector2i(ahead_col, foot_row - 2)) < 0:
+			velocity.y = DOOR_STEP_HOP
+			_door_step_done = true
 	# EASE into the stroll speed (don't snap from run/walk speed → smooth entry, no jerk).
 	# Keep strolling the WHOLE transition (through the camera hold too) — never pause at the door.
 	var target_vx: float = float(door_walk) * main.WALK_MAX * DOOR_WALK_SPEED

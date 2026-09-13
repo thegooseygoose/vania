@@ -3,6 +3,7 @@ shader_type canvas_item;
 //   mode 0 = REGULAR (rect is hidden, so this never actually runs)
 //   mode 1 = CRT      (scanlines + RGB aperture mask + vignette)
 //   mode 2 = INVERTED (colour negative)
+//   mode 3 = GAMEBOY  (greyscale, quantized to 4 shades like the original panel)
 // Reads the already-rendered frame via the screen texture and rewrites it.
 
 uniform int mode = 0;
@@ -13,7 +14,13 @@ void fragment() {
 	vec2 uv = SCREEN_UV;
 	vec3 col = texture(screen_tex, uv).rgb;
 
-	if (mode == 2) {
+	if (mode == 3) {
+		// GAMEBOY: luminance greyscale, quantized to 4 shades (near-black/dark/
+		// light/near-white) like the original 4-shade panel, no green tint.
+		float lum = dot(col, vec3(0.299, 0.587, 0.114));
+		float q = floor(lum * 4.0) / 3.0;
+		col = vec3(clamp(q, 0.0, 1.0));
+	} else if (mode == 2) {
 		// colour negative
 		col = vec3(1.0) - col;
 	} else if (mode == 1) {
