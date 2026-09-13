@@ -176,7 +176,7 @@ const LEVEL_GEOMETRY := {
 	27: {"lw": 96, "flag": 90, "castle": 92, "dark": false, "under": false, "noflag": true},   # Vania 1-11 LEVEL H all-new-powers test
 	28: {"lw": 40, "flag": 34, "castle": 36, "dark": false, "under": false, "noflag": true},   # LEVEL Z: blank sandbox (40-tile floor)
 	29: {"lw": 480, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # METROID WORLD: full-size map from meto.png
-	30: {"lw": 265, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # ENEMIES showcase: one room per enemy + armory
+	30: {"lw": 313, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # ENEMIES showcase: one room per enemy + armory + brood boss
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
 	6: {"lw": 200, "flag": 192, "castle": 195, "dark": false, "under": false},
@@ -1319,6 +1319,7 @@ func _read_spawns() -> void:
 				31: etype = "virus"                         # Virus: a walking ground enemy (goomba-like patrol)
 				35: etype = "turret"                        # ceiling turret: stationary, shoots at you every 0.5s
 				36: etype = "urchin"                        # spiky floating mine: slow up/down bob in place
+				37: etype = "brood"                         # BROOD boss: grounded, 3-phase melee+projectile boss
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1707,6 +1708,15 @@ func _spawn_enemies() -> void:
 			add_child(ur)
 			ur.spawn(d["pos"])
 			enemies.append(ur)
+			continue
+		# Brood boss: grounded, 3-phase melee (charge) + projectile boss. SHOT-only, many hits.
+		if t == "brood":
+			var bd = Enemy.new()
+			bd.main = self
+			bd.kind = "brood"
+			add_child(bd)
+			bd.spawn(d["pos"])
+			enemies.append(bd)
 			continue
 		var e = Enemy.new()
 		e.main = self
@@ -5433,6 +5443,8 @@ func _load_textures() -> void:
 		"turret0": "enemies/turret0", "turret1": "enemies/turret1",
 		# Urchin (spiky green floating mine): 2-frame slow pulse
 		"urchin0": "enemies/urchin0", "urchin1": "enemies/urchin1",
+		# Brood boss (grounded 3-phase melee+projectile boss): 2-frame lumbering walk
+		"brood0": "enemies/brood0", "brood1": "enemies/brood1",
 		"koopa1": "enemies/koopa_walk1", "koopa2": "enemies/koopa_walk2",
 		"koopa_shell": "enemies/koopa_shell",
 		"shell_left": "enemies/shell_left", "shell_right1": "enemies/shell_right1",

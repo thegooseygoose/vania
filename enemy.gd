@@ -67,6 +67,22 @@ const BOSS_HP := 12             # shots to kill
 var boss_hp := BOSS_HP
 var metroid_t := 0.0            # pulse + wobble timer
 
+# Brood boss (grounded boss, kind == "brood"): a heavy melee/projectile boss with 3 HP-based
+# phases. Uses the SHARED horizontal-patrol/gravity/wall-bounce code (like virus/goomba) rather
+# than its own dedicated _xxx_move, then layers phase-based attacks on top of it (see the
+# "Brood boss attacks" block in _physics_process). SHOT-only, like the Metroid boss/turret/serp.
+const BROOD_SIZE := Vector2(26, 24)
+const BROOD_SPEED := 24.0        # slow patrol speed
+const BROOD_CHARGE_SPEED := 150.0
+const BROOD_CHARGE_WIND := 0.4   # brief telegraph pause before a charge
+const BROOD_CHARGE_TIME := 0.9   # how long a charge burst lasts
+const BROOD_HP := 20             # shots to kill (charge beam power=3 per hit)
+var brood_hp := BROOD_HP
+var brood_fire_t := 0.0
+var brood_charge_t := 0.0        # cooldown timer between charges (phase 2+)
+var brood_state := "patrol"      # "patrol" | "winding" | "charging"
+var brood_state_t := 0.0
+
 # Urchin (spiky floating mine, kind == "urchin"): sits in place, slowly bobbing
 # up and down. No patrol, no gravity, no chasing — a stationary contact hazard.
 const URCHIN_SIZE := Vector2(16, 16)
@@ -169,10 +185,16 @@ func spawn(feet_pos: Vector2) -> void:
 		urchin_spawn_pos = global_position   # bobs around this centre point
 		_animate()
 		return
-	rect.size = VIRUS_SIZE if kind == "virus" else (SERP_SIZE if kind == "serp" else (KOOPA if kind == "koopa" else GOOMBA))
+	if kind == "brood":
+		brood_hp = BROOD_HP
+		brood_fire_t = 0.0
+		brood_charge_t = 0.0
+		brood_state = "patrol"
+		brood_state_t = 0.0
+	rect.size = BROOD_SIZE if kind == "brood" else (VIRUS_SIZE if kind == "virus" else (SERP_SIZE if kind == "serp" else (KOOPA if kind == "koopa" else GOOMBA)))
 	dir = -1
 	global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)
-	velocity = Vector2(dir * (SERP_SPD if kind == "serp" else main.ENEMY_SPD), 0)
+	velocity = Vector2(dir * (BROOD_SPEED if kind == "brood" else (SERP_SPD if kind == "serp" else main.ENEMY_SPD)), 0)
 	_animate()   # set the initial sprite frame NOW so it's visible in place before it activates
 	             # (otherwise it has no texture until it first moves → it "pops in")
 
@@ -271,6 +293,10 @@ func _physics_process(delta: float) -> void:
 	else:
 		if kind == "serp":
 			spd = SERP_SPD                 # snail crawl — force the very-slow speed every frame
+		elif kind == "brood":
+			# winding = braced still (telegraph); charging = full speed toward the player;
+			# patrol = slow drift, forced every frame like the serp so it never coasts at old speed
+			spd = 0.0 if brood_state == "winding" else (BROOD_CHARGE_SPEED if brood_state == "charging" else BROOD_SPEED)
 		elif spd == 0.0:
 			spd = 200.0 if shell_moving else main.ENEMY_SPD
 		velocity.x = dir * spd
@@ -322,6 +348,47 @@ func _physics_process(delta: float) -> void:
 			if tp == 0:
 				tp = dir
 			main.enemy_shoot_fireball(global_position, tp, true)   # true = straight/horizontal
+
+	# Brood boss: 3 HP-based phases layered on top of the shared patrol above.
+	#   phase 1 (>66% hp): patrol + a 3-way projectile spread every 2.5s.
+	#   phase 2 (33-66%):  also charges the player every 4s (0.4s telegraph, then a 0.9s rush).
+	#   phase 3 (<33%):    faster/denser — 5-way spread every 1.5s, charges every 2.5s.
+	if kind == "brood" and _on_screen():
+		var phase := 1
+		if brood_hp <= BROOD_HP * 0.33: phase = 3
+		elif brood_hp <= BROOD_HP * 0.66: phase = 2
+		match brood_state:
+			"patrol":
+				brood_fire_t += delta
+				var fire_iv: float = 1.5 if phase == 3 else 2.5
+				if brood_fire_t >= fire_iv:
+					brood_fire_t = 0.0
+					var spread: int = 5 if phase == 3 else 3
+					var base_dir: Vector2 = (main.player.global_position - global_position).normalized()
+					if base_dir == Vector2.ZERO: base_dir = Vector2(dir, 0)
+					for i in range(spread):
+						var a: float = (float(i) - float(spread - 1) / 2.0) * 0.28
+						var d2: Vector2 = base_dir.rotated(a)
+						main.enemy_shoot_at(global_position, global_position + d2 * 64.0)
+				if phase >= 2:
+					brood_charge_t += delta
+					var charge_iv: float = 2.5 if phase == 3 else 4.0
+					if brood_charge_t >= charge_iv:
+						brood_charge_t = 0.0
+						brood_state = "winding"
+						brood_state_t = 0.0
+			"winding":
+				brood_state_t += delta
+				if brood_state_t >= BROOD_CHARGE_WIND:
+					dir = signi(main.player.global_position.x - global_position.x)
+					if dir == 0: dir = 1
+					brood_state = "charging"
+					brood_state_t = 0.0
+			"charging":
+				brood_state_t += delta
+				if brood_state_t >= BROOD_CHARGE_TIME:
+					brood_state = "patrol"
+					brood_state_t = 0.0
 
 	if kind == "koopa" and shell:
 		_update_shell(delta)
@@ -417,6 +484,11 @@ func _animate() -> void:
 	if kind == "virus":
 		# 2-frame walk (front-facing, symmetric — no flip); alternate on a ~150ms clock like the goomba
 		_frame(_t("virus1") if (t / 150) % 2 else _t("virus0"), false)
+		return
+	if kind == "brood":
+		# 2-frame lumbering walk, faster alternation while charging; flips toward travel
+		var period: int = 90 if brood_state == "charging" else 220
+		_frame(_t("brood1") if (t / period) % 2 else _t("brood0"), dir < 0)
 		return
 	if kind == "bug":
 		# 2-frame wing flap; art is symmetric, flip toward travel
@@ -527,7 +599,7 @@ func flip_stun() -> void:
 func knock_out(hit_dir := 1) -> void:
 	# Zoomers AND the Metroid boss shrug off every generic kill (stomp/dash/rider-kick/fireball/
 	# sliding shell all route through knock_out) — ONLY the boomerang/SHOT hurts them (boomerang_kill).
-	if kind == "zoomer" or kind == "metroid" or kind == "turret":
+	if kind == "zoomer" or kind == "metroid" or kind == "turret" or kind == "brood":
 		return
 	_do_knock_out(hit_dir)
 
@@ -562,6 +634,13 @@ func boomerang_kill(hit_dir := 1, power := 1) -> void:
 		if turret_hp <= 0:
 			_do_knock_out(hit_dir)
 		return
+	if kind == "brood":
+		# Brood boss: BROOD_HP shots to kill, flashing on each hit (see phase logic in _physics_process)
+		brood_hp -= power
+		_flash_t = 0.16
+		if brood_hp <= 0:
+			_do_knock_out(hit_dir)
+		return
 	_do_knock_out(hit_dir)
 
 func _do_knock_out(hit_dir := 1) -> void:
@@ -576,8 +655,8 @@ func _do_knock_out(hit_dir := 1) -> void:
 		velocity = Vector2.ZERO
 		_melt_base_y = sprite.position.y
 		return
-	# Zoomer, Serp, Metroid boss, Turret & Urchin: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
-	if kind == "zoomer" or kind == "serp" or kind == "metroid" or kind == "turret" or kind == "urchin":
+	# Zoomer, Serp, Metroid boss, Turret, Urchin & Brood: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
+	if kind == "zoomer" or kind == "serp" or kind == "metroid" or kind == "turret" or kind == "urchin" or kind == "brood":
 		_spawn_explosion()
 		dead = true
 		squished = false
