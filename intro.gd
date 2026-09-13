@@ -39,7 +39,7 @@ var mm_sel := 0             # index into the current menu list
 var mm_in_extras := false   # true = showing the EXTRAS submenu
 # each entry = [label, play-slot]. slot -1 = open EXTRAS, -2 = back to main.
 const MAIN_MENU := [["LEVEL A", 1], ["LEVEL C", 5], ["LEVEL Z", 12], ["EXTRAS", -1]]
-const EXTRA_MENU := [["LEVEL B", 2], ["LEVEL D", 7], ["LEVEL E", 8], ["LEVEL F", 9], ["LEVEL G", 10], ["LEVEL H", 11], ["BRINSTAR", 13], ["BACK", -2]]
+const EXTRA_MENU := [["LEVEL B", 2], ["LEVEL D", 7], ["LEVEL E", 8], ["LEVEL F", 9], ["LEVEL G", 10], ["LEVEL H", 11], ["BRINSTAR", 13], ["ENEMIES", 14], ["BACK", -2]]
 func _menu_list() -> Array:
 	return EXTRA_MENU if mm_in_extras else MAIN_MENU
 var char_sel := 0          # character-select: 0=MARIO, 1=KAMEN
