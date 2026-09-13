@@ -65,6 +65,19 @@ const DASH_COOLDOWN := 0.35
 var has_riderkick := false        # RIDER KICK: in the AIR, press Dash to dive-kick down-forward (Kamen's finisher)
 var riderkicking := false
 var has_timeslow := false         # OVERCLOCK: press to briefly slow the world (not you)
+var has_boostball := false        # BOOST BALL: while morphed, hold Dash + a direction to charge a
+                                   # high-speed roll that smashes brittle blocks and enemies on contact
+var boosting := false
+var boost_charge := 0.0
+var _boost_run_held := false      # last frame's RUN state (own edge-detect — see _morph_physics)
+var _boost_charge_sfx: AudioStreamPlayer = null   # the revving sound, looped manually while charging
+var boost_timer := 0.0
+const BOOST_CHARGE_TIME := 0.45   # seconds held before it launches
+const BOOST_SPEED := 780.0        # speed of the boost roll — 3x the original 260
+const BOOST_TIME := 0.35          # how long the boost roll lasts
+var has_chargebeam := false       # CHARGE BEAM: hold Shot to charge a blast worth 3 normal shots
+var charge_t := 0.0
+const CHARGE_TIME := 0.9          # seconds held to reach a full charge
 var has_hover := false            # HOVER JETS: hold Jump in the air to float down slowly (limited fuel)
 var hover_fuel := 0.0
 const HOVER_FUEL_MAX := 1.1       # seconds of hover per airtime
@@ -182,8 +195,8 @@ var hurt_lock := 0.0             # brief control lock after a hit so the knockba
 var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
 var _door_step_done := false    # one-shot guard so the door-threshold step-up hop only fires once
 const DOOR_WALK_SPEED := 0.595  # fraction of walk speed for the door cutscene stroll (lower = slower; was 0.7, -15%)
-const HURT_KNOCK_X := 127.5      # horizontal knockback (shoved opposite to facing) — 15% less than 150
-const HURT_KNOCK_UP := -153.0    # upward pop on a hit — 15% less than -180 (NES Metroid: $FD = -3 px/frame)
+const HURT_KNOCK_X := 95.625     # horizontal knockback (shoved opposite to facing) — 25% less than 127.5
+const HURT_KNOCK_UP := -114.75   # upward pop on a hit — 25% less than -153 (NES Metroid: $FD = -3 px/frame)
 const HURT_LOCK_TIME := 0.3      # seconds movement input is ignored after a hit
 # ---- NES METROID physics, from the NES engine disassembly (metroidret/m1disasm prg7_engine.asm).
 # NES speeds are px/frame at 60fps (x60 = px/s); gravity is added in 1/256 px/frame per frame. ----
@@ -411,6 +424,13 @@ func spawn(feet_pos: Vector2) -> void:
 	has_timeslow = bool(ab.get("timeslow", false))
 	has_hover = bool(ab.get("hover", false))
 	hover_fuel = HOVER_FUEL_MAX
+	has_boostball = bool(ab.get("boostball", false))
+	has_chargebeam = bool(ab.get("chargebeam", false))
+	boosting = false
+	boost_charge = 0.0
+	_boost_run_held = false
+	_stop_boost_charge_sfx()
+	charge_t = 0.0
 	dashing = false
 	riderkicking = false
 	dash_cd = 0.0
@@ -640,24 +660,26 @@ func _update_alive(delta: float) -> void:
 			extend_target = gp
 			extend_time = 0.0
 			main.sfx("grapple")              # the "shoot" of firing the arm (Bionic Commando sfx)
-	# BOOMERANG — its own button B on the controller, or C on the keyboard (the
-	# keyboard "shoot" only throws when we didn't just start a grapple this frame)
-	if has_boomerang and not morphed and (boomerang == null or not is_instance_valid(boomerang)) \
-			and (Input.is_action_just_pressed("boomerang") \
-				or (not grappling and not extending and Input.is_action_just_pressed("shoot"))):
-		var aim_up := _facing_up()   # only shoot UP when actually FACING up (standing still / jumping) — not while walking
-		if aim_up:
-			# fire UP: bullet leaves the GUN MUZZLE (the raised barrel sits ~2px to the facing side of
-			# centre in the up-pose art), just above the barrel tip; recoil shoves him DOWN a touch
-			var muzzle := global_position + Vector2(float(facing) * 2.0, -col_size.y * 0.5 - 4.0)
-			boomerang = main.throw_boomerang(muzzle, facing, true)
-			velocity.y += SHOT_RECOIL_UP * 0.7
-		else:
-			boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing)
-			velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back
-			velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
-			_nes_jump = false          # the recoil pop keeps its floaty arc (not cut by the NES jump release)
-		main.sfx("shot")                                  # gun shot (own sound; "fireball" stays for enemy/Mario fire)
+	# BOOMERANG / SHOT — its own button B on the controller, or C on the keyboard (the
+	# keyboard "shoot" only throws when we didn't just start a grapple this frame).
+	# CHARGE BEAM: hold the button to charge; releasing fires a power=3 blast. Without
+	# the power-up it's the original instant-press shot (charged never triggers).
+	var can_fire_now: bool = has_boomerang and not morphed and (boomerang == null or not is_instance_valid(boomerang))
+	if has_chargebeam and can_fire_now:
+		var held_fire: bool = Input.is_action_pressed("boomerang") \
+			or (not grappling and not extending and Input.is_action_pressed("shoot"))
+		if held_fire:
+			charge_t += delta
+		var released_fire: bool = Input.is_action_just_released("boomerang") \
+			or Input.is_action_just_released("shoot")
+		if released_fire and charge_t > 0.0:
+			_fire_shot(charge_t >= CHARGE_TIME)
+			charge_t = 0.0
+		elif not held_fire:
+			charge_t = 0.0
+	elif can_fire_now and (Input.is_action_just_pressed("boomerang") \
+			or (not grappling and not extending and Input.is_action_just_pressed("shoot"))):
+		_fire_shot(false)
 
 	if wall_lock > 0.0:
 		wall_lock = maxf(0.0, wall_lock - delta)
@@ -1035,13 +1057,60 @@ func bomb_bounced() -> void:
 	_nes_jump = false          # a bomb pop is its own arc, not the NES jump (no release cut)
 
 
+# Fires the SHOT. `charged` = a full CHARGE BEAM blast (power=3, bigger orange bolt).
+func _fire_shot(charged: bool) -> void:
+	var aim_up := _facing_up()   # only shoot UP when actually FACING up (standing still / jumping) — not while walking
+	if aim_up:
+		# fire UP: bullet leaves the GUN MUZZLE (the raised barrel sits ~2px to the facing side of
+		# centre in the up-pose art), just above the barrel tip; recoil shoves him DOWN a touch
+		var muzzle := global_position + Vector2(float(facing) * 2.0, -col_size.y * 0.5 - 4.0)
+		boomerang = main.throw_boomerang(muzzle, facing, true, charged)
+		velocity.y += SHOT_RECOIL_UP * 0.7
+		_nes_jump = false          # the recoil pop keeps its floaty arc (not cut by the NES jump release)
+	else:
+		boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing, false, charged)
+		velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back
+		velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
+	main.sfx("shot")                                  # gun shot (own sound; "fireball" stays for enemy/Mario fire)
+
+
 func _morph_physics(delta: float, on_floor: bool) -> void:
+	if boosting:
+		_boost_physics(delta)
+		return
 	# BOMB: while rolled up, the shoot button DROPS a morph-ball bomb (Metroid) — but only once every
 	# BOMB_COOLDOWN (6s); the rest of the time the button does nothing in ball mode.
 	if has_bombs and bomb_cd <= 0.0 and (Input.is_action_just_pressed("shoot") or Input.is_action_just_pressed("boomerang")):
 		main.spawn_bomb(global_position + Vector2(0.0, col_size.y * 0.5 - 3.0))
 		bomb_cd = BOMB_COOLDOWN
-	var running := Input.is_action_pressed("run")
+	# BOOST BALL: hold the RUN button (X on a controller, Z/Shift on keyboard) while
+	# rolled up to charge in place — it does NOT launch while held, even once fully
+	# charged, it just holds at max charge. RELEASE the button to launch in the
+	# direction you're FACING (no need to hold a direction). Releasing before it's
+	# fully charged (or leaving the ground) cancels with no launch.
+	var run_held := Input.is_action_pressed("run")
+	if has_boostball and on_floor and run_held:
+		boost_charge = minf(boost_charge + delta, BOOST_CHARGE_TIME)
+		_boost_run_held = true
+		_boost_charge_physics(delta)
+		return
+	# own edge-detect for the release (not Input.is_action_just_released — in this
+	# project's frame timing that flag can fire a frame after "pressed" already
+	# reads false, which is one frame too late once something else has already
+	# reset the charge; comparing to our OWN remembered previous state is exact).
+	if has_boostball and _boost_run_held and not run_held and boost_charge >= BOOST_CHARGE_TIME:
+		boosting = true
+		boost_timer = BOOST_TIME
+		boost_charge = 0.0
+		_boost_run_held = false
+		main.sfx("explode")                                # blast-off launch sound
+		_boost_physics(delta)
+		return
+	boost_charge = 0.0
+	_boost_run_held = false
+	_stop_boost_charge_sfx()        # cut the revving sound if the charge was cancelled early
+	sprite.modulate = Color.WHITE   # clear any leftover boost-charge flicker
+	var running := Input.is_action_pressed("run") and not has_boostball
 	var max_s: float = (main.RUN_MAX if running else main.WALK_MAX) * MORPH_SPEED
 	var acc: float = ((main.RUN_ACC if running else main.WALK_ACC) if on_floor else main.AIR_ACC) * MORPH_SPEED
 	if submerged or (not on_floor and air_was_submerged and not has_waterwalk):
@@ -1118,7 +1187,69 @@ func _dash_physics(delta: float) -> void:
 	dash_timer -= delta
 	if dash_timer <= 0.0 or is_on_wall():
 		dashing = false
-		sprite.modulate = Color.WHITE                      # clear the flash when the dash ends
+
+
+# Revs in place while the boost charges up: settle horizontal speed to a stop,
+# still fall/land normally, and pulse the ball brighter+faster the closer it gets
+# to launching so the charge-up actually reads on screen.
+func _stop_boost_charge_sfx() -> void:
+	if _boost_charge_sfx != null and is_instance_valid(_boost_charge_sfx):
+		_boost_charge_sfx.stop()
+		_boost_charge_sfx.queue_free()
+	_boost_charge_sfx = null
+
+
+func _boost_charge_physics(delta: float) -> void:
+	velocity.x = move_toward(velocity.x, 0.0, main.FRICTION * delta)
+	var g: float = main.GRAVITY * (main.FALL_GRAV_SCALE if velocity.y >= 0.0 else 1.0)
+	velocity.y = minf(velocity.y + g * delta, main.MAX_FALL)
+	move_and_slide()
+	sprite.texture = _ball_tex
+	sprite.position = Vector2(0, -1)
+	var pct: float = clampf(boost_charge / BOOST_CHARGE_TIME, 0.0, 1.0)
+	sprite.rotation += float(facing) * (40.0 + pct * 400.0) * delta   # spins faster as it charges
+	var pulse: float = 0.5 + 0.5 * sin(boost_charge * (18.0 + pct * 40.0))   # flicker speeds up near launch
+	sprite.modulate = Color(1.0 + pct * 1.5, 1.0 + pct * 1.0, 1.0).lerp(Color.WHITE, 1.0 - pulse)
+	grounded = is_on_floor()
+	# revving sound: loop it (retrigger when it finishes) for as long as you're still
+	# charging; stop it the instant it's fully charged so silence = "ready to release".
+	if pct < 1.0:
+		if _boost_charge_sfx == null or not is_instance_valid(_boost_charge_sfx) or not _boost_charge_sfx.playing:
+			_boost_charge_sfx = main.sfx("sonic_spin")
+	else:
+		_stop_boost_charge_sfx()
+
+
+func _boost_physics(delta: float) -> void:
+	velocity.x = float(facing) * BOOST_SPEED
+	var g: float = main.GRAVITY * (main.FALL_GRAV_SCALE if velocity.y >= 0.0 else 1.0)
+	velocity.y = minf(velocity.y + g * delta, main.MAX_FALL)
+	# smash brittle blocks across the ball's height at the column just ahead
+	var col := int(floor((global_position.x + float(facing) * (half_w() + 4.0)) / main.TILE))
+	var top := int(floor((global_position.y - col_size.y / 2.0 + 2.0) / main.TILE))
+	var bot := int(floor((global_position.y + col_size.y / 2.0 - 2.0) / main.TILE))
+	for row in range(top, bot + 1):
+		main.smash_tile(col, row)
+	# blast any enemy it ploughs through
+	for e in main.enemies:
+		if is_instance_valid(e) and not e.dead \
+				and global_position.distance_to(e.global_position) < 16.0:
+			if e.has_method("dash_kill"):
+				e.dash_kill(facing)
+			elif e.has_method("knock_out"):
+				e.knock_out(facing)
+			main.sfx("kick")
+	move_and_slide()
+	sprite.texture = _ball_tex
+	sprite.position = Vector2(0, -1)
+	sprite.rotation += velocity.x * delta * 0.22          # spins faster than a normal roll
+	sprite.modulate = Color(1.8, 2.2, 3.0) if int(boost_timer * 40.0) % 2 == 0 else Color(0.6, 1.2, 2.2)
+	_spawn_afterimage(Color(0.4, 1.0, 0.5, 0.55))          # green motion-blur speed streak
+	grounded = is_on_floor()
+	boost_timer -= delta
+	if boost_timer <= 0.0 or is_on_wall():
+		boosting = false
+		sprite.modulate = Color.WHITE                      # clear the flash when the boost ends
 
 
 # RIDER KICK: a diagonal down-forward dive-kick. Smashes enemies + brittle blocks; pops off on impact.
@@ -1668,7 +1799,7 @@ func _update_transform(delta: float) -> void:
 		_animate()
 
 func hurt() -> void:
-	if invuln > 0.0 or dead or transforming or dashing or riderkicking:
+	if invuln > 0.0 or dead or transforming or dashing or riderkicking or boosting:
 		return  # dashing / rider-kicking = invulnerable attacks (you kill on contact, take no damage)
 	# numeric health: every hit costs HP_PER_HIT (10); at 0 you die. (Fire power is kept until death.)
 	hp -= HP_PER_HIT

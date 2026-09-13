@@ -92,6 +92,7 @@ tile_map_data = PackedByteArray("AAAAAA0AAAAAAAAAAAABAA0AAAAAAAAAAAACAA0AAAAAAAA
 tile_set = SubResource("TileSet_mc20k")
 
 [node name="EnemyTiles" type="TileMapLayer" parent="." unique_id=418502011]
+tile_map_data = PackedByteArray("AAARAAUAAAAkAAAAAAA=")
 tile_set = ExtResource("2_enmyt")
 
 [node name="CoinTiles" type="TileMapLayer" parent="." unique_id=418502012]
@@ -122,5 +123,5 @@ tile_map_data = PackedByteArray("AAAPAAwAAAASAAAAAACgAOP/AAARAAAAAACgAOT/AAARAAA
 tile_set = ExtResource("6_mlbie")
 
 [node name="Powerups" type="TileMapLayer" parent="." unique_id=1098438402]
-tile_map_data = PackedByteArray("AAAHAAwAAAAwAAAAAAA1AAQAAAAyAAAAAABAAAQAAAAxAAAAAABrAPv/AAAzAAAAAACcAOz/AAA0AAAAAADJAO3/AAA2AAAAAACNAPr/AAA1AAAAAAATAAwAAABCAAAAAAAUAAwAAABBAAAAAAA=")
+tile_map_data = PackedByteArray("AAAHAAwAAAAwAAAAAAA1AAQAAAAyAAAAAABAAAQAAAAxAAAAAABrAPv/AAAzAAAAAACcAOz/AAA0AAAAAADJAO3/AAA2AAAAAACNAPr/AAA1AAAAAAATAAwAAABCAAAAAAAUAAwAAABBAAAAAAAkAAwAAABRAAAAAAAlAAwAAABSAAAAAAA=")
 tile_set = ExtResource("7_s3sxq")

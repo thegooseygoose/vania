@@ -37,7 +37,7 @@ const SERP_SPD := 10.0          # Serp (snail) patrol speed — VERY slow (norma
 const SERP_SIZE := Vector2(16, 20)  # ~ the 21px sprite so landing on it stomps (no invisible pixels)
 const VIRUS_SIZE := Vector2(20, 22) # Virus: goomba-like walker; box ~ its 29x27 sprite (overhangs a touch)
 var serp_hp := 3                # Serp takes 3 SHOTS to kill (flashes on each hit)
-var virus_hp := 10              # Virus takes 10 SHOTS to kill (flashes on each hit)
+var virus_hp := 3               # Virus takes 3 SHOTS to kill (flashes on each hit)
 var turret_hp := 5              # Ceiling Turret takes 5 SHOTS to kill (flashes on each hit)
 const TURRET_SIZE := Vector2(14, 14)   # ceiling gunner: compact box (contact hurts the player)
 const TURRET_FIRE := 0.5        # Turret: fires a shot straight AT the player every half second
@@ -66,6 +66,14 @@ const METROID_BOB := 10.0       # vertical wobble amplitude while drifting
 const BOSS_HP := 12             # shots to kill
 var boss_hp := BOSS_HP
 var metroid_t := 0.0            # pulse + wobble timer
+
+# Urchin (spiky floating mine, kind == "urchin"): sits in place, slowly bobbing
+# up and down. No patrol, no gravity, no chasing — a stationary contact hazard.
+const URCHIN_SIZE := Vector2(16, 16)
+const URCHIN_BOB_AMP := 44.0    # how far it drifts above/below its spawn point (px)
+const URCHIN_BOB_FREQ := 1.4    # a full sine cycle (up, down, back) takes 2*PI/freq ≈ 4.5s
+var urchin_spawn_pos := Vector2.ZERO
+var urchin_t := 0.0             # bob + pulse timer
 
 # shell timers
 var shell_timer := 0.0         # how long the shell has sat still
@@ -154,6 +162,13 @@ func spawn(feet_pos: Vector2) -> void:
 		global_position = Vector2(feet_pos.x, cell_top + rect.size.y / 2.0)
 		_animate()
 		return
+	if kind == "urchin":
+		rect.size = URCHIN_SIZE
+		urchin_t = 0.0
+		global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)   # floats where it's painted
+		urchin_spawn_pos = global_position   # bobs around this centre point
+		_animate()
+		return
 	rect.size = VIRUS_SIZE if kind == "virus" else (SERP_SIZE if kind == "serp" else (KOOPA if kind == "koopa" else GOOMBA))
 	dir = -1
 	global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)
@@ -225,6 +240,11 @@ func _physics_process(delta: float) -> void:
 	# Metroid boss: slow homing float toward the player (no gravity/patrol)
 	if kind == "metroid":
 		_metroid_move(delta)
+		return
+
+	# Urchin: stays put, slowly bobbing up and down (no gravity/patrol/chasing)
+	if kind == "urchin":
+		_urchin_move(delta)
 		return
 
 	# Turret: clings to the ceiling, never moves; fires a shot straight DOWN every 0.5s.
@@ -413,6 +433,13 @@ func _animate() -> void:
 		sprite.position = Vector2.ZERO
 		sprite.texture = main.tex["metroid1"] if int(metroid_t * 3.0) % 2 else main.tex["metroid0"]
 		return
+	if kind == "urchin":
+		# 2-frame slow pulse, drawn CENTRED on the body (not feet-aligned like _frame)
+		sprite.flip_v = false
+		sprite.flip_h = false
+		sprite.position = Vector2.ZERO
+		sprite.texture = main.tex["urchin1"] if int(urchin_t * 2.0) % 2 else main.tex["urchin0"]
+		return
 	if kind == "goomba":
 		if squished:
 			_frame(_t("goomba_flat"), false)
@@ -505,31 +532,32 @@ func knock_out(hit_dir := 1) -> void:
 	_do_knock_out(hit_dir)
 
 # The boomerang/SHOT's kill — the one thing that takes a zoomer down (works on any enemy).
-func boomerang_kill(hit_dir := 1) -> void:
+# `power` is how many normal shots this hit is worth (CHARGE BEAM fires a power=3 blast).
+func boomerang_kill(hit_dir := 1, power := 1) -> void:
 	if kind == "serp":
 		# Serp is tough: 3 shots to kill, flashing white on each hit
-		serp_hp -= 1
+		serp_hp -= power
 		_flash_t = 0.18
 		if serp_hp <= 0:
 			_do_knock_out(hit_dir)
 		return
 	if kind == "metroid":
 		# the Metroid boss: BOSS_HP shots to kill, flashing on each hit
-		boss_hp -= 1
+		boss_hp -= power
 		_flash_t = 0.16
 		if boss_hp <= 0:
 			_do_knock_out(hit_dir)
 		return
 	if kind == "virus":
 		# Virus is tough: 10 shots to kill, flashing white on each hit
-		virus_hp -= 1
+		virus_hp -= power
 		_flash_t = 0.18
 		if virus_hp <= 0:
 			_do_knock_out(hit_dir)
 		return
 	if kind == "turret":
 		# Ceiling Turret: 5 shots to kill, flashing white on each hit
-		turret_hp -= 1
+		turret_hp -= power
 		_flash_t = 0.16
 		if turret_hp <= 0:
 			_do_knock_out(hit_dir)
@@ -548,8 +576,8 @@ func _do_knock_out(hit_dir := 1) -> void:
 		velocity = Vector2.ZERO
 		_melt_base_y = sprite.position.y
 		return
-	# Zoomer, Serp, Metroid boss & the Turret: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
-	if kind == "zoomer" or kind == "serp" or kind == "metroid" or kind == "turret":
+	# Zoomer, Serp, Metroid boss, Turret & Urchin: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
+	if kind == "zoomer" or kind == "serp" or kind == "metroid" or kind == "turret" or kind == "urchin":
 		_spawn_explosion()
 		dead = true
 		squished = false
@@ -701,6 +729,15 @@ func _metroid_move(delta: float) -> void:
 		sprite.modulate = Color(2.2, 2.2, 2.2)
 	else:
 		sprite.modulate = Color.WHITE
+
+# Urchin (spiky mine): holds its spawn position and drifts slowly up and down
+# on a sine wave. No gravity, no terrain collision, no chasing — a pure
+# stationary hazard (contact hurts the player; any weapon kills it in one hit).
+func _urchin_move(delta: float) -> void:
+	urchin_t += delta
+	global_position.y = urchin_spawn_pos.y + sin(urchin_t * URCHIN_BOB_FREQ) * URCHIN_BOB_AMP
+	velocity = Vector2.ZERO
+	_animate()
 
 # DASH KILL: a flashier death than knock_out — the enemy is rocketed away hard and
 # tumbling, glowing cyan, and then vaporizes. The spin/glow/fade run in the dead branch

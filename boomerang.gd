@@ -5,6 +5,7 @@ extends Node2D
 var main
 var dir := 1
 var aim := Vector2i(1, 0)      # travel direction of the SHOT bullet: (±1,0) sideways or (0,-1) up
+var power := 1                 # CHARGE BEAM: a fully-charged shot fires with power=3 (3 normal shots' worth)
 var t := 0.0
 var returning := false
 const OUT_TIME := 0.64        # flies out longer → about twice the distance
@@ -89,7 +90,7 @@ func _physics_process(delta: float) -> void:
 	if USE_NEW_BOOM:
 		# BULLET: fly straight at constant speed until it has travelled BULLET_RANGE (64px),
 		# then stop & despawn. (Also despawns off-screen / after BULLET_LIFE as a safety.)
-		var step: float = BULLET_SPEED * delta
+		var step: float = BULLET_SPEED * float(power) * delta   # CHARGE BEAM: power=3 flies 3x faster
 		step = minf(step, BULLET_RANGE - _bullet_traveled)   # don't overshoot the 64px range
 		global_position += Vector2(aim) * step               # sideways OR up, per aim
 		_bullet_traveled += step
@@ -126,7 +127,7 @@ func _physics_process(delta: float) -> void:
 				and global_position.distance_to(e.global_position) < 14.0:
 			# boomerang_kill also takes down zoomers (which shrug off knock_out)
 			if e.has_method("boomerang_kill"):
-				e.boomerang_kill(dir)
+				e.boomerang_kill(dir, power)
 			elif e.has_method("knock_out"):
 				e.knock_out(dir)
 			main.sfx("kick")
@@ -167,19 +168,23 @@ func _draw() -> void:
 	if USE_NEW_BOOM:
 		var av := Vector2(aim)                                # travel direction (sideways or up)
 		var flick := 0.82 + 0.18 * sin(t * 42.0)              # subtle energy flicker
-		var glow := Color(0.25, 0.7, 1.0, 1.0)                # electric blue (stands out on green/navy)
+		var charged := power > 1
+		# CHARGE BEAM: a bigger, orange-hot bolt instead of the normal electric blue
+		var glow := Color(1.0, 0.55, 0.15, 1.0) if charged else Color(0.25, 0.7, 1.0, 1.0)
+		var sc: float = 1.8 if charged else 1.0
 		# soft outer glow
-		draw_circle(Vector2.ZERO, 6.0, Color(glow.r, glow.g, glow.b, 0.14 * flick))
-		draw_circle(Vector2.ZERO, 4.0, Color(glow.r, glow.g, glow.b, 0.30 * flick))
+		draw_circle(Vector2.ZERO, 6.0 * sc, Color(glow.r, glow.g, glow.b, 0.14 * flick))
+		draw_circle(Vector2.ZERO, 4.0 * sc, Color(glow.r, glow.g, glow.b, 0.30 * flick))
 		# motion trail — overlapping discs streaming out BEHIND the head, thinning + fading
 		for i in range(6):
 			var fx := float(i)
-			var rad := maxf(0.6, 2.8 - fx * 0.45)
+			var rad := maxf(0.6, 2.8 - fx * 0.45) * sc
 			var a := clampf((0.75 - fx * 0.12) * flick, 0.0, 1.0)
-			draw_circle(av * -(2.0 + fx * 2.3), rad, Color(0.45, 0.85, 1.0, a))
-		# hot core at the head (bright cyan-white → pure white centre)
-		draw_circle(av * 1.6, 2.6, Color(0.8, 0.97, 1.0, 0.95))
-		draw_circle(av * 1.6, 1.4, Color(1.0, 1.0, 1.0, 1.0))
+			var trail := Color(1.0, 0.75, 0.35, a) if charged else Color(0.45, 0.85, 1.0, a)
+			draw_circle(av * -(2.0 + fx * 2.3) * sc, rad, trail)
+		# hot core at the head (bright white centre either way)
+		draw_circle(av * 1.6 * sc, 2.6 * sc, Color(1.0, 0.95, 0.85, 0.95) if charged else Color(0.8, 0.97, 1.0, 0.95))
+		draw_circle(av * 1.6 * sc, 1.4 * sc, Color(1.0, 1.0, 1.0, 1.0))
 		return
 	if _frames.is_empty():
 		return

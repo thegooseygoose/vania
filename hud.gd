@@ -88,7 +88,7 @@ func _paint(ci: CanvasItem) -> void:
 	# top status row — score / MARIO / coins removed; the minimap lives in that top-left space now
 	# which room (section) of the level you're in (room-camera levels only) — WORLD readout removed
 	if main.game_state == "play" and main.uses_rooms():
-		font.draw_text(ci, Vector2(150, 16),
+		font.draw_text(ci, Vector2(150, 28),
 			"SECT " + str(main.current_section()) + "/" + str(main.section_count()),
 			1.0, Color(0.5, 1.0, 0.75))
 
@@ -174,6 +174,10 @@ func _paint(ci: CanvasItem) -> void:
 	if _msg_text != "":
 		font.draw_text(ci, Vector2(0, main.VIEW_H / 3.0), _msg_text, 1.0, Color(1.0, 0.6, 0.75), w)
 
+	# item-get banner: "X ACQUIRED!" then (after a beat) the fuller description + controls
+	if main.powerup_freeze_t > 0.0 and main.powerup_name != "":
+		_paint_item_banner(ci)
+
 	# stage-start fade-in: a black veil over the whole screen that fades to clear
 	if main.fade_alpha > 0.0:
 		ci.draw_rect(Rect2(0, 0, w, float(main.VIEW_H)), Color(0, 0, 0, main.fade_alpha))
@@ -217,15 +221,30 @@ func _paint_hp(ci: CanvasItem) -> void:
 	var cur: int = int(main.player.hp)
 	var maxhp: int = int(main.player.MAX_HP)
 	var frac: float = float(cur) / float(maxhp) if maxhp > 0 else 0.0
-	# green when healthy → yellow → red as it drains
-	var col: Color
-	if frac > 0.5:
-		col = Color(0.55, 1.0, 0.55)
-	elif frac > 0.25:
-		col = Color(1.0, 0.85, 0.25)
-	else:
-		col = Color(1.0, 0.35, 0.3)
-	font.draw_text(ci, Vector2(92, 16), "HP " + str(cur), 1.0, col)
+	# Super Metroid style: a zero-padded number in a small bracket badge, then a
+	# segmented energy bar (small blocks, not a smooth fill) that drains right-to-left.
+	var col := Color(1.0, 0.2, 0.2)   # fixed red (matches the minimap panel's red border)
+	var bx := 92.0
+	var by := 9.0
+	# bracket badge + number — fixed red accent (matches the minimap panel's red border)
+	var badge := Color(1.0, 0.2, 0.2)
+	ci.draw_rect(Rect2(bx, by, 2, 9), badge)
+	ci.draw_rect(Rect2(bx, by, 6, 2), badge)
+	ci.draw_rect(Rect2(bx, by + 7, 6, 2), badge)
+	font.draw_text(ci, Vector2(bx + 8.0, by + 8.0), str(cur).pad_zeros(3), 1.0, badge)
+	# segmented bar
+	var seg_x := bx + 8.0 + font.text_w("000", 1.0) + 6.0
+	var seg_n := 20
+	var seg_w := 3.0
+	var seg_gap := 1.0
+	var filled: int = int(round(frac * float(seg_n)))
+	for i in range(seg_n):
+		var sx: float = seg_x + float(i) * (seg_w + seg_gap)
+		var scol: Color = col if i < filled else Color(0.2, 0.22, 0.28, 0.9)
+		ci.draw_rect(Rect2(sx, by, seg_w, 9), scol)
+	# thin end-caps so the bar reads as one gauge, not floating blocks
+	ci.draw_rect(Rect2(seg_x - 2.0, by, 1.0, 9), Color(0.6, 0.7, 0.85))
+	ci.draw_rect(Rect2(seg_x + float(seg_n) * (seg_w + seg_gap) - seg_gap + 1.0, by, 1.0, 9), Color(0.6, 0.7, 0.85))
 
 
 # A small fog-of-war minimap in the top-right: the whole level scaled to fit a fixed box,
@@ -246,8 +265,13 @@ func _paint_minimap(ci: CanvasItem) -> void:
 	var mh: float = float(rect.size.y) * scale
 	var ox := 5.0                                       # TOP-LEFT (replaces the old score/MARIO/coins)
 	var oy := 10.0
-	ci.draw_rect(Rect2(ox - 2, oy - 2, mw + 4, mh + 4), Color(0.9, 0.9, 1.0, 0.85))   # frame
-	ci.draw_rect(Rect2(ox - 1, oy - 1, mw + 2, mh + 2), Color(0.06, 0.06, 0.12, 0.85)) # backdrop
+	# sci-fi panel frame — red border
+	var border := Color(1.0, 0.2, 0.2, 1.0)
+	ci.draw_rect(Rect2(ox - 2, oy - 2, mw + 4, mh + 4), Color(0.03, 0.07, 0.13, 0.92))  # backdrop
+	ci.draw_rect(Rect2(ox - 2, oy - 2, mw + 4, 1), border)
+	ci.draw_rect(Rect2(ox - 2, oy + mh + 1, mw + 4, 1), border)
+	ci.draw_rect(Rect2(ox - 2, oy - 2, 1, mh + 4), border)
+	ci.draw_rect(Rect2(ox + mw + 1, oy - 2, 1, mh + 4), border)
 	var cs: float = maxf(1.0, ceil(scale))
 	for cell in map_seen:
 		if not rect.has_point(cell):
@@ -337,6 +361,117 @@ func _paint_vol_row(ci: CanvasItem, by: float, label: String, vol: float, select
 	ci.draw_rect(Rect2(bx - 1, top - 1, bw + 2, bh + 2), col, false, 1.0)
 	# percentage
 	font.draw_text(ci, Vector2(bx + bw + 6, by), str(int(round(vol * 100))), 1.0, col)
+
+
+# ---- item-get banner ("X ACQUIRED!" -> fuller description card) ----------
+# A sci-fi bordered box: cyan double outline, cut corners, small top/bottom
+# connector tabs, and a faint horizontal scanline fill — drawn over the frozen
+# world while a power-up's pickup jingle plays.
+func _paint_banner_box(ci: CanvasItem, x: float, y: float, w2: float, h2: float) -> void:
+	var border := Color(0.25, 0.85, 1.0, 1.0)
+	var fill := Color(0.03, 0.07, 0.13, 0.95)
+	var cut := 6.0   # corner notch size
+	# filled body (a simple rect is fine under the cut-corner outline drawn on top)
+	ci.draw_rect(Rect2(x, y, w2, h2), fill)
+	# faint horizontal scanlines
+	var sy := y + 2.0
+	while sy < y + h2 - 1.0:
+		ci.draw_rect(Rect2(x + 2.0, sy, w2 - 4.0, 1.0), Color(border.r, border.g, border.b, 0.06))
+		sy += 3.0
+	# octagon outline (cut corners) — two nested lines for a "double border" look
+	for inset_i in range(2):
+		var inset: float = 0.0 if inset_i == 0 else 2.0
+		var xi := x + inset; var yi := y + inset
+		var wi := w2 - inset * 2.0; var hi := h2 - inset * 2.0
+		var pts := PackedVector2Array([
+			Vector2(xi + cut, yi), Vector2(xi + wi - cut, yi),
+			Vector2(xi + wi, yi + cut), Vector2(xi + wi, yi + hi - cut),
+			Vector2(xi + wi - cut, yi + hi), Vector2(xi + cut, yi + hi),
+			Vector2(xi, yi + hi - cut), Vector2(xi, yi + cut),
+		])
+		var col := Color(border.r, border.g, border.b, 1.0 if inset == 0.0 else 0.55)
+		for i in pts.size():
+			ci.draw_line(pts[i], pts[(i + 1) % pts.size()], col, 1.0)
+	# small connector tabs, top and bottom centre (plug-shaped accents)
+	var tabw := 18.0
+	var tx := x + w2 / 2.0 - tabw / 2.0
+	ci.draw_rect(Rect2(tx, y - 3.0, tabw, 3.0), border)
+	ci.draw_rect(Rect2(tx + 5.0, y - 5.0, tabw - 10.0, 2.0), border)
+	ci.draw_rect(Rect2(tx, y + h2, tabw, 3.0), border)
+	ci.draw_rect(Rect2(tx + 5.0, y + h2 + 3.0, tabw - 10.0, 2.0), border)
+
+
+# control-button words (the literal keys/buttons named in a description, e.g.
+# "PRESS X TO FIRE") are picked out and drawn in red so they stand out from the
+# instruction text around them. Deliberately excludes "A" (collides with the
+# English article "a", never used here to mean the A button anyway). "JUMP" is
+# included too — it's always the action word for the Jump button, so calling
+# it out the same way as a literal key name teaches which word means "press
+# the jump button" even though it's spelled as a whole word, not a key letter.
+const _CONTROL_WORDS := ["UP", "DOWN", "LEFT", "RIGHT", "X", "Y", "B", "C", "Z",
+	"F", "K", "T", "O", "W", "L3", "R3", "LB", "RB", "LT", "RT", "JUMP"]
+
+func _is_control_word(word: String) -> bool:
+	# strip trailing punctuation (a sentence-ending "DOWN." shouldn't miss the match)
+	var w := word.to_upper()
+	while w.length() > 0 and ".,!?:;".contains(w[w.length() - 1]):
+		w = w.substr(0, w.length() - 1)
+	return _CONTROL_WORDS.has(w)
+
+# draws one line word-by-word, centred in a box starting at `x` with width `center_w`,
+# with any control-button word (see _CONTROL_WORDS) drawn in red instead of `col`.
+func _draw_line_with_controls(ci: CanvasItem, x: float, y: float, line: String, scale: float, col: Color, center_w: float) -> void:
+	var words := line.split(" ")
+	var total_w := font.text_w(line, scale)
+	var pen := x + floorf((center_w - total_w) / 2.0)
+	var space_w: float = font.text_w(" ", scale)
+	for i in words.size():
+		var word: String = words[i]
+		var wcol: Color = Color(1.0, 0.25, 0.25) if _is_control_word(word) else col
+		font.draw_text(ci, Vector2(pen, y), word, scale, wcol)
+		pen += font.text_w(word, scale) + space_w
+
+
+# greedy word-wrap: splits `s` into lines no wider than max_w at the given scale
+func _wrap_text(s: String, max_w: float, scale: float) -> Array:
+	var words := s.split(" ")
+	var lines := []
+	var cur := ""
+	for word in words:
+		var trial: String = word if cur == "" else cur + " " + word
+		if font.text_w(trial, scale) > max_w and cur != "":
+			lines.append(cur)
+			cur = word
+		else:
+			cur = trial
+	if cur != "":
+		lines.append(cur)
+	return lines
+
+
+func _paint_item_banner(ci: CanvasItem) -> void:
+	var w := float(main.VIEW_W)
+	if main.powerup_phase == 0:
+		# phase 0: "X ACQUIRED!"
+		var bw := 220.0
+		var bh := 34.0
+		var bx := (w - bw) / 2.0
+		var by := float(main.VIEW_H) / 2.0 - bh / 2.0 - 6.0
+		_paint_banner_box(ci, bx, by, bw, bh)
+		font.draw_text(ci, Vector2(bx, by + bh / 2.0 + 3.0), main.powerup_name + " ACQUIRED!", 1.0, Color.WHITE, bw)
+	else:
+		# phase 1: the fuller description + controls, word-wrapped to fit the box
+		var bw2 := 232.0
+		var lines := _wrap_text(main.powerup_desc, bw2 - 16.0, 1.0)
+		var lh := 9.0
+		var bh2: float = lh * lines.size() + 14.0
+		var bx2 := (w - bw2) / 2.0
+		var by2 := float(main.VIEW_H) / 2.0 - bh2 / 2.0 - 6.0
+		_paint_banner_box(ci, bx2, by2, bw2, bh2)
+		var yy := by2 + 12.0
+		for ln in lines:
+			_draw_line_with_controls(ci, bx2, yy, String(ln), 1.0, Color(0.85, 0.97, 1.0), bw2)
+			yy += lh
 
 
 # "FILTER  < CRT >" row — cycles the display filter instead of a volume bar.

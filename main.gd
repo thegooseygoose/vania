@@ -732,6 +732,13 @@ var flag_sliding := false       # true once the pole is grabbed → flag lowers 
 const FLAG_SLIDE_SPEED := 114.5  # px/s the flag lowers (smooth, ~pixel-by-pixel)
 var start_delay := 0.0          # brief "get ready" freeze at each stage start (fades in)
 var powerup_freeze_t := 0.0     # Mario-style power-up: the whole world stops while a jingle plays
+# item-get banner: phase 0 = "X ACQUIRED!", phase 1 (after PHASE1_TIME) = the fuller
+# description + controls. Both phases run inside the same powerup_freeze_t window.
+var powerup_phase := 0
+var powerup_elapsed := 0.0
+var powerup_name := ""
+var powerup_desc := ""
+const POWERUP_PHASE1_TIME := 5.0   # seconds the "X ACQUIRED!" card holds before swapping
 var fade_alpha := 0.0           # 0 = clear, 1 = black; fades the stage in from black
 const START_DELAY := 0.5        # seconds Mario + clock are frozen while the stage fades in
 
@@ -857,6 +864,9 @@ func _physics_process(delta: float) -> void:
 	# and resume the level music when it ends.
 	if powerup_freeze_t > 0.0:
 		powerup_freeze_t = maxf(0.0, powerup_freeze_t - delta)
+		powerup_elapsed += delta
+		if powerup_phase == 0 and powerup_elapsed >= POWERUP_PHASE1_TIME:
+			powerup_phase = 1   # swap the "ACQUIRED!" card to the description card
 		if powerup_freeze_t == 0.0 and music_player:
 			music_player.stream_paused = false
 	# OVERCLOCK: tick the time-slow window + cooldown, set the world slow factor, and pitch-down the music
@@ -1303,6 +1313,7 @@ func _read_spawns() -> void:
 				30: etype = "metroid"                       # floating Metroid boss: slow homing float, SHOT-only, many hits
 				31: etype = "virus"                         # Virus: a walking ground enemy (goomba-like patrol)
 				35: etype = "turret"                        # ceiling turret: stationary, shoots at you every 0.5s
+				36: etype = "urchin"                        # spiky floating mine: slow up/down bob in place
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1683,6 +1694,15 @@ func _spawn_enemies() -> void:
 			tu.spawn(d["pos"])
 			enemies.append(tu)
 			continue
+		# Urchin: a stationary spiky mine that slowly bobs up and down in place.
+		if t == "urchin":
+			var ur = Enemy.new()
+			ur.main = self
+			ur.kind = "urchin"
+			add_child(ur)
+			ur.spawn(d["pos"])
+			enemies.append(ur)
+			continue
 		var e = Enemy.new()
 		e.main = self
 		# "purple_goomba" / "purple_koopa" share the base kind's physics + stomp
@@ -2050,6 +2070,7 @@ func save_checkpoint(pos: Vector2) -> void:
 		"grapple": player.has_grapple, "boomerang": player.has_boomerang,
 		"waterwalk": player.has_waterwalk, "dash": player.has_dash,
 		"riderkick": player.has_riderkick, "timeslow": player.has_timeslow, "hover": player.has_hover,
+		"boostball": player.has_boostball, "chargebeam": player.has_chargebeam,
 	}
 	checkpoint_active = true
 	checkpoint_pos = pos
@@ -2153,7 +2174,8 @@ const BIKE_TILE_ATLAS := 59     # bike tile (Powerups layer) = spawns a rideable
 # 48 morph, 49 double jump, 50 brick break, 51 grapple, 52 boomerang, 53 wall jump, 54 water gravity.
 const POWERUP_TILE_SHAPE := {48: "circle", 49: "square", 50: "triangle", 51: "star",
 	52: "boomerang", 53: "diamond", 54: "waterwalk", 55: "dash", 56: "riderkick",
-	57: "timeslow", 58: "hover", 65: "balljump", 66: "bomb"}
+	57: "timeslow", 58: "hover", 65: "balljump", 66: "bomb",
+	81: "chargebeam", 82: "boostball"}
 	# NOTE: 59 is NOT free — it's BIKE_TILE_ATLAS (bike spawner), so the bomb lives at 66.
 
 var goal_cells: Array = []
@@ -2238,15 +2260,43 @@ func nearest_grab_point(from: Vector2, rng: float) -> Vector2:
 	return best
 
 
-func throw_boomerang(pos: Vector2, dir: int, up: bool = false):
+func throw_boomerang(pos: Vector2, dir: int, up: bool = false, charged: bool = false):
 	var b = load("res://boomerang.gd").new()
 	b.main = self
 	b.dir = dir
 	b.aim = Vector2i(0, -1) if up else Vector2i(dir, 0)   # aim UP (d-pad up) or sideways
+	b.power = 3 if charged else 1     # CHARGE BEAM: a full charge hits for 3 normal shots
 	add_child(b)
 	b.global_position = pos
 	return b
 
+
+# item-get banner text: NAME shown first ("X ACQUIRED!"), then (after POWERUP_PHASE1_TIME)
+# swapped for the fuller DESC card explaining what it does + the controls to use it.
+const POWERUP_NAME := {
+	"square": "DOUBLE JUMP", "triangle": "GROUND POUND", "circle": "MORPH BALL",
+	"diamond": "WALL JUMP", "bomb": "MORPH BOMBS", "balljump": "SPRING BALL",
+	"star": "GRAPPLE BEAM", "boomerang": "SHOT", "waterwalk": "GRAVITY SUIT",
+	"dash": "DASH ATTACK", "riderkick": "RIDER KICK", "timeslow": "OVERCLOCK",
+	"hover": "HOVER JETS", "chargebeam": "CHARGE BEAM", "boostball": "BOOST BALL",
+}
+const POWERUP_DESC := {
+	"square": "LETS YOU JUMP AGAIN IN MID-AIR. PRESS JUMP A SECOND TIME WHILE AIRBORNE.",
+	"triangle": "SLAMS YOU STRAIGHT DOWN TO BREAK BLOCKS BELOW. JUMP THEN PRESS DOWN.",
+	"circle": "ROLLS YOU INTO A BALL TO FIT THROUGH TIGHT GAPS. PRESS DOWN TO MORPH.",
+	"diamond": "LETS YOU KICK OFF WALLS TO CLIMB. PRESS JUMP WHILE TOUCHING A WALL.",
+	"bomb": "DROPS A BOMB WHILE ROLLED UP TO BREAK BLOCKS AND HIT ENEMIES. ROLL UP THEN SHOOT.",
+	"balljump": "HOPS YOU WHILE ROLLED UP. PRESS JUMP WHILE MORPHED.",
+	"star": "FIRES A HOOK TO SWING FROM GRAB POINTS. HOLD Y OR C TO SWING. RELEASE TO LAUNCH.",
+	"boomerang": "FIRES A BOLT AT ENEMIES AND SWITCHES. PRESS C OR B ON A CONTROLLER.",
+	"waterwalk": "LETS YOU MOVE FREELY THROUGH WATER. NO SLOWDOWN OR SINKING.",
+	"dash": "LUNGES YOU FORWARD DAMAGING ANYTHING IN YOUR PATH. PRESS F OR LB ON THE GROUND.",
+	"riderkick": "A DIVING KICK THAT HITS HARD IN MID-AIR. JUMP THEN PRESS K OR RT.",
+	"timeslow": "SLOWS TIME FOR EVERYTHING BUT YOU. PRESS T OR L3 TO ACTIVATE.",
+	"hover": "LETS YOU FLOAT GENTLY WHILE FALLING. HOLD JUMP IN THE AIR.",
+	"chargebeam": "HOLD THE SHOT BUTTON TO CHARGE A BLAST WORTH 3 SHOTS. RELEASE TO FIRE.",
+	"boostball": "WHILE ROLLED UP HOLD X TO CHARGE UP THEN LAUNCH IN THE DIRECTION YOU ARE FACING. SMASHES BLOCKS AND ENEMIES.",
+}
 
 func collect_powerup(shape: String) -> void:
 	match shape:
@@ -2263,21 +2313,20 @@ func collect_powerup(shape: String) -> void:
 		"riderkick": player.has_riderkick = true
 		"timeslow": player.has_timeslow = true
 		"hover": player.has_hover = true
-	# Mario-style power-up get: freeze the whole world + pause the music while a jingle plays
-	powerup_freeze_t = 4.4        # = item_get.wav length (4.36s, silence trimmed) so music resumes as it ends
+		"chargebeam": player.has_chargebeam = true
+		"boostball": player.has_boostball = true
+	# Mario-style power-up get: freeze the whole world + pause the music while a jingle plays.
+	# The freeze covers BOTH banner phases: PHASE1_TIME for "X ACQUIRED!", then the rest for
+	# the description card.
+	const PHASE2_TIME := 4.5
+	powerup_freeze_t = POWERUP_PHASE1_TIME + PHASE2_TIME
+	powerup_phase = 0
+	powerup_elapsed = 0.0
+	powerup_name = String(POWERUP_NAME.get(shape, "POWER UP"))
+	powerup_desc = String(POWERUP_DESC.get(shape, ""))
 	if music_player:
 		music_player.stream_paused = true
 	sfx("fanfare")
-	var msg := {"square": "DOUBLE JUMP!", "triangle": "GROUND POUND!  (jump, then Down)",
-		"circle": "MORPH BALL!  (press Down)", "diamond": "WALL JUMP!  (jump off walls)",
-		"bomb": "MORPH BOMBS!  (roll up, then shoot)",
-		"balljump": "SPRING BALL!  (press Jump while rolled up)",
-		"star": "GRAPPLE BEAM!  (hold Y/C to swing, release to launch)", "boomerang": "SHOT!  (C, or B on controller)",
-		"waterwalk": "GRAVITY SUIT  YOU CAN MOVE FREELY THROUGH WATER", "dash": "DASH ATTACK!  (press F / LB to lunge)",
-		"riderkick": "RIDER KICK!  (jump, then K / RT to dive-kick)",
-		"timeslow": "OVERCLOCK!  (press T / L3 to slow time)", "hover": "HOVER JETS!  (hold Jump in the air to float)"}
-	if hud:
-		hud.show_message(String(msg.get(shape, "POWER UP!")), 2.5)
 
 
 func bump_block(tx: int, ty: int) -> void:
@@ -5377,6 +5426,8 @@ func _load_textures() -> void:
 		"virus0": "enemies/virus0", "virus1": "enemies/virus1",
 		# Turret (ceiling gunner): 2-frame idle (eye/barrel pulse)
 		"turret0": "enemies/turret0", "turret1": "enemies/turret1",
+		# Urchin (spiky green floating mine): 2-frame slow pulse
+		"urchin0": "enemies/urchin0", "urchin1": "enemies/urchin1",
 		"koopa1": "enemies/koopa_walk1", "koopa2": "enemies/koopa_walk2",
 		"koopa_shell": "enemies/koopa_shell",
 		"shell_left": "enemies/shell_left", "shell_right1": "enemies/shell_right1",
