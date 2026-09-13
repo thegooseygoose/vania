@@ -1,10 +1,10 @@
-[gd_scene format=4 uid="uid://b8n7oqftsvu57"]
+[gd_scene format=4]
 
-[ext_resource type="TileSet" uid="uid://bgigmyhw2417a" path="res://tiles.tileset.tres" id="1_ojrjn"]
-[ext_resource type="TileSet" uid="uid://c76pnrms2syvg" path="res://tiles_markers.tileset.tres" id="2_tjh38"]
-[ext_resource type="TileSet" uid="uid://disucjitm6xkb" path="res://tiles_powerups.tileset.tres" id="3_lhhoo"]
-[ext_resource type="TileSet" uid="uid://bkpthyv5r5oqa" path="res://enemy_tiles.tileset.tres" id="4_ufpxx"]
-[ext_resource type="TileSet" uid="uid://dtml5nti0lum5" path="res://coin_tiles.tileset.tres" id="5_67ewg"]
+[ext_resource type="TileSet" path="res://tiles.tileset.tres" id="1_ojrjn"]
+[ext_resource type="TileSet" path="res://tiles_markers.tileset.tres" id="2_tjh38"]
+[ext_resource type="TileSet" path="res://tiles_powerups.tileset.tres" id="3_lhhoo"]
+[ext_resource type="TileSet" path="res://enemy_tiles.tileset.tres" id="4_ufpxx"]
+[ext_resource type="TileSet" path="res://coin_tiles.tileset.tres" id="5_67ewg"]
 
 [node name="Level5" type="Node2D" unique_id=1624134702]
 
@@ -13,7 +13,7 @@ tile_map_data = PackedByteArray("AAAAAA0AAABDAAAAAAAAAA4AAABDAAAAAAABAA0AAABDAAA
 tile_set = ExtResource("1_ojrjn")
 
 [node name="Markers" type="TileMapLayer" parent="." unique_id=1411954988]
-tile_map_data = PackedByteArray("AABAAAgAAAARAAAAAABAAAcAAAARAAAAAABAAAYAAAARAAAAAABAAAUAAAARAAAAAABAAAQAAAARAAAAAABCAAgAAAAQAAAAAABAAAMAAAARAAAAAABAAAIAAAARAAAAAABAAAEAAAARAAAAAAB4AAYAAAARAAAAAAB4AAUAAAARAAAAAAB4AAQAAAARAAAAAAB4AAMAAAARAAAAAAB4AAIAAAARAAAAAAB4AAEAAAARAAAAAAB6AAYAAAAQAAAAAAAgAPz/AAATAAAAAAATAAwAAAASAAAAAAA=")
+tile_map_data = PackedByteArray("AABAAAgAAAARAAAAAABAAAcAAAARAAAAAABAAAYAAAARAAAAAABAAAUAAAARAAAAAABAAAQAAAARAAAAAABCAAgA//////////9AAAMAAAARAAAAAABAAAIAAAARAAAAAABAAAEAAAARAAAAAAB4AAYAAAARAAAAAAB4AAUAAAARAAAAAAB4AAQAAAARAAAAAAB4AAMAAAARAAAAAAB4AAIAAAARAAAAAAB4AAEAAAARAAAAAAB6AAYA//////////8gAPz/AAATAAAAAAATAAwAAAASAAAAAAA+AAgAAAAQAAAAAAB2AAYAAAAQAAAAAAA=")
 tile_set = ExtResource("2_tjh38")
 
 [node name="Powerups" type="TileMapLayer" parent="." unique_id=438365900]
