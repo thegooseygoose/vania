@@ -76,7 +76,9 @@ const BROOD_SPEED := 24.0        # slow patrol speed
 const BROOD_CHARGE_SPEED := 150.0
 const BROOD_CHARGE_WIND := 0.4   # brief telegraph pause before a charge
 const BROOD_CHARGE_TIME := 0.9   # how long a charge burst lasts
-const BROOD_HP := 20             # shots to kill (charge beam power=3 per hit)
+const BROOD_HP := 32             # shots to kill (charge beam power=3 per hit) -- high enough that
+                                  # a player mashing the normal shot (~0.2-0.3s/shot) still spends
+                                  # enough time in each phase (32/3 ≈ 11 hp per phase) to see all 3
 var brood_hp := BROOD_HP
 var brood_fire_t := 0.0
 var brood_charge_t := 0.0        # cooldown timer between charges (phase 2+)
@@ -377,6 +379,7 @@ func _physics_process(delta: float) -> void:
 						brood_charge_t = 0.0
 						brood_state = "winding"
 						brood_state_t = 0.0
+						main.sfx("sonic_spin")   # revving growl -- telegraphs the charge is coming
 			"winding":
 				brood_state_t += delta
 				if brood_state_t >= BROOD_CHARGE_WIND:
@@ -398,6 +401,10 @@ func _physics_process(delta: float) -> void:
 	if _flash_t > 0.0:
 		_flash_t -= delta
 		sprite.modulate = Color(3.0, 3.0, 3.0)
+	elif kind == "brood" and (brood_state == "winding" or brood_state == "charging"):
+		# telegraph the charge attack with a pulsing red glow, on top of the walk animation
+		var pulse: float = 1.6 + 0.6 * sin(brood_state_t * 24.0)
+		sprite.modulate = Color(pulse, 1.0, 1.0)
 	else:
 		sprite.modulate = Color.WHITE
 
