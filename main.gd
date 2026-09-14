@@ -1320,6 +1320,7 @@ func _read_spawns() -> void:
 				35: etype = "turret"                        # ceiling turret: stationary, shoots at you every 0.5s
 				36: etype = "urchin"                        # spiky floating mine: slow up/down bob in place
 				37: etype = "brood"                         # BROOD boss: grounded, 3-phase melee+projectile boss
+				38: etype = "talon"                         # TALON boss: flying, telegraph+dive-bomb boss
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1717,6 +1718,15 @@ func _spawn_enemies() -> void:
 			add_child(bd)
 			bd.spawn(d["pos"])
 			enemies.append(bd)
+			continue
+		# Talon boss: flying, telegraph + dive-bomb boss. SHOT-only, many hits.
+		if t == "talon":
+			var tl = Enemy.new()
+			tl.main = self
+			tl.kind = "talon"
+			add_child(tl)
+			tl.spawn(d["pos"])
+			enemies.append(tl)
 			continue
 		var e = Enemy.new()
 		e.main = self
@@ -5445,6 +5455,8 @@ func _load_textures() -> void:
 		"urchin0": "enemies/urchin0", "urchin1": "enemies/urchin1",
 		# Brood boss (grounded 3-phase melee+projectile boss): 2-frame lumbering walk
 		"brood0": "enemies/brood0", "brood1": "enemies/brood1",
+		# Talon boss (flying dive-bomb boss): 2-frame wing flap
+		"talon0": "enemies/talon0", "talon1": "enemies/talon1",
 		"koopa1": "enemies/koopa_walk1", "koopa2": "enemies/koopa_walk2",
 		"koopa_shell": "enemies/koopa_shell",
 		"shell_left": "enemies/shell_left", "shell_right1": "enemies/shell_right1",

@@ -85,6 +85,24 @@ var brood_charge_t := 0.0        # cooldown timer between charges (phase 2+)
 var brood_state := "patrol"      # "patrol" | "winding" | "charging"
 var brood_state_t := 0.0
 
+# Talon boss (flying dive-bomb boss, kind == "talon"): loiters/hovers near its spawn point, then
+# telegraphs and commits to a straight-line dive at the player's last position, retreating back to
+# patrol height afterward. SHOT-only, like the other bosses.
+const TALON_SIZE := Vector2(24, 20)
+const TALON_PATROL_SPEED := 45.0
+const TALON_DIVE_SPEED := 230.0
+const TALON_TELEGRAPH_TIME := 0.5
+const TALON_DIVE_TIME := 1.1
+const TALON_RECOVER_TIME := 0.7
+const TALON_DIVE_COOLDOWN := 2.6   # base cooldown between dives; shortens a bit at low HP
+const TALON_HP := 24               # shots to kill
+var talon_hp := TALON_HP
+var talon_state := "patrol"        # "patrol" | "telegraph" | "diving" | "recovering"
+var talon_state_t := 0.0
+var talon_target := Vector2.ZERO   # snapshotted dive target (player's position when it committed)
+var talon_home := Vector2.ZERO     # patrol-height anchor (its spawn point)
+var talon_t := 0.0                 # flap/bob timer
+
 # Urchin (spiky floating mine, kind == "urchin"): sits in place, slowly bobbing
 # up and down. No patrol, no gravity, no chasing — a stationary contact hazard.
 const URCHIN_SIZE := Vector2(16, 16)
@@ -187,6 +205,17 @@ func spawn(feet_pos: Vector2) -> void:
 		urchin_spawn_pos = global_position   # bobs around this centre point
 		_animate()
 		return
+	if kind == "talon":
+		rect.size = TALON_SIZE
+		talon_hp = TALON_HP
+		talon_state = "patrol"
+		talon_state_t = 0.0
+		talon_t = 0.0
+		dir = -1
+		global_position = Vector2(feet_pos.x, feet_pos.y - rect.size.y / 2.0)   # floats where it's painted
+		talon_home = global_position
+		_animate()
+		return
 	if kind == "brood":
 		brood_hp = BROOD_HP
 		brood_fire_t = 0.0
@@ -269,6 +298,11 @@ func _physics_process(delta: float) -> void:
 	# Urchin: stays put, slowly bobbing up and down (no gravity/patrol/chasing)
 	if kind == "urchin":
 		_urchin_move(delta)
+		return
+
+	# Talon boss: hovers/loiters, then telegraphs + dives at the player (no gravity/patrol)
+	if kind == "talon":
+		_talon_move(delta)
 		return
 
 	# Turret: clings to the ceiling, never moves; fires a shot straight DOWN every 0.5s.
@@ -512,6 +546,15 @@ func _animate() -> void:
 		sprite.position = Vector2.ZERO
 		sprite.texture = main.tex["metroid1"] if int(metroid_t * 3.0) % 2 else main.tex["metroid0"]
 		return
+	if kind == "talon":
+		# 2-frame wing flap, drawn CENTRED on the body; faster flap + tilts to face travel while diving
+		sprite.flip_v = false
+		sprite.position = Vector2.ZERO
+		sprite.flip_h = dir < 0
+		var flap_period: int = 70 if talon_state == "diving" else 180
+		sprite.texture = main.tex["talon1"] if (t / flap_period) % 2 else main.tex["talon0"]
+		sprite.rotation = (velocity.angle() + PI / 2.0) if talon_state == "diving" else 0.0
+		return
 	if kind == "urchin":
 		# 2-frame slow pulse, drawn CENTRED on the body (not feet-aligned like _frame)
 		sprite.flip_v = false
@@ -606,7 +649,7 @@ func flip_stun() -> void:
 func knock_out(hit_dir := 1) -> void:
 	# Zoomers AND the Metroid boss shrug off every generic kill (stomp/dash/rider-kick/fireball/
 	# sliding shell all route through knock_out) — ONLY the boomerang/SHOT hurts them (boomerang_kill).
-	if kind == "zoomer" or kind == "metroid" or kind == "turret" or kind == "brood":
+	if kind == "zoomer" or kind == "metroid" or kind == "turret" or kind == "brood" or kind == "talon":
 		return
 	_do_knock_out(hit_dir)
 
@@ -648,6 +691,13 @@ func boomerang_kill(hit_dir := 1, power := 1) -> void:
 		if brood_hp <= 0:
 			_do_knock_out(hit_dir)
 		return
+	if kind == "talon":
+		# Talon boss: TALON_HP shots to kill, flashing on each hit (see state logic in _talon_move)
+		talon_hp -= power
+		_flash_t = 0.16
+		if talon_hp <= 0:
+			_do_knock_out(hit_dir)
+		return
 	_do_knock_out(hit_dir)
 
 func _do_knock_out(hit_dir := 1) -> void:
@@ -662,8 +712,8 @@ func _do_knock_out(hit_dir := 1) -> void:
 		velocity = Vector2.ZERO
 		_melt_base_y = sprite.position.y
 		return
-	# Zoomer, Serp, Metroid boss, Turret, Urchin & Brood: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
-	if kind == "zoomer" or kind == "serp" or kind == "metroid" or kind == "turret" or kind == "urchin" or kind == "brood":
+	# Zoomer, Serp, Metroid boss, Turret, Urchin, Brood & Talon: they EXPLODE instead of flipping off — a pixel-art burst, then gone.
+	if kind == "zoomer" or kind == "serp" or kind == "metroid" or kind == "turret" or kind == "urchin" or kind == "brood" or kind == "talon":
 		_spawn_explosion()
 		dead = true
 		squished = false
@@ -824,6 +874,63 @@ func _urchin_move(delta: float) -> void:
 	global_position.y = urchin_spawn_pos.y + sin(urchin_t * URCHIN_BOB_FREQ) * URCHIN_BOB_AMP
 	velocity = Vector2.ZERO
 	_animate()
+
+# Talon boss: loiters near its spawn point (drifting toward being above the player, gentle bob),
+# then commits to a straight-line dive at the player's position, and retreats back afterward.
+# No gravity/terrain collision — a pure flyer, like the Metroid boss/bug/urchin.
+func _talon_move(delta: float) -> void:
+	talon_t += delta
+	var p = main.player
+	if p == null or not is_instance_valid(p):
+		return
+	match talon_state:
+		"patrol":
+			velocity = Vector2.ZERO
+			var target_x: float = clampf(p.global_position.x, talon_home.x - 60.0, talon_home.x + 60.0)
+			global_position.x = move_toward(global_position.x, target_x, TALON_PATROL_SPEED * delta)
+			global_position.y = talon_home.y + sin(talon_t * 1.6) * 10.0
+			if absf(target_x - global_position.x) > 1.0:
+				dir = 1 if (target_x - global_position.x) >= 0.0 else -1
+			talon_state_t += delta
+			var cooldown: float = TALON_DIVE_COOLDOWN * (0.7 if talon_hp <= TALON_HP * 0.4 else 1.0)
+			if talon_state_t >= cooldown and _on_screen():
+				talon_state = "telegraph"
+				talon_state_t = 0.0
+				talon_target = p.global_position
+				main.sfx("sonic_spin")   # a fitting "screech" telegraph, reused from the Sonic sfx set
+		"telegraph":
+			velocity = Vector2.ZERO
+			talon_state_t += delta
+			if talon_state_t >= TALON_TELEGRAPH_TIME:
+				var to: Vector2 = talon_target - global_position
+				dir = 1 if to.x >= 0.0 else -1
+				velocity = to.normalized() * TALON_DIVE_SPEED if to.length() > 1.0 else Vector2(dir * TALON_DIVE_SPEED, 0.0)
+				talon_state = "diving"
+				talon_state_t = 0.0
+		"diving":
+			# committed straight-line rush — no re-aiming mid-dive, so the player can dodge it
+			global_position += velocity * delta
+			talon_state_t += delta
+			if talon_state_t >= TALON_DIVE_TIME:
+				talon_state = "recovering"
+				talon_state_t = 0.0
+				velocity = Vector2.ZERO
+		"recovering":
+			velocity = Vector2.ZERO
+			global_position = global_position.move_toward(talon_home, TALON_PATROL_SPEED * 1.6 * delta)
+			talon_state_t += delta
+			if talon_state_t >= TALON_RECOVER_TIME or global_position.distance_to(talon_home) < 4.0:
+				talon_state = "patrol"
+				talon_state_t = 0.0
+	_animate()
+	if _flash_t > 0.0:
+		_flash_t -= delta
+		sprite.modulate = Color(2.2, 1.4, 2.4)
+	elif talon_state == "telegraph":
+		var pulse: float = 1.6 + 0.6 * sin(talon_state_t * 30.0)
+		sprite.modulate = Color(pulse, 0.6, 0.6)
+	else:
+		sprite.modulate = Color.WHITE
 
 # DASH KILL: a flashier death than knock_out — the enemy is rocketed away hard and
 # tumbling, glowing cyan, and then vaporizes. The spin/glow/fade run in the dead branch
