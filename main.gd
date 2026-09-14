@@ -175,7 +175,7 @@ const LEVEL_GEOMETRY := {
 	26: {"lw": 80, "flag": 74, "castle": 76, "dark": false, "under": false, "noflag": true},   # Vania 1-10 LEVEL G hover showcase
 	27: {"lw": 96, "flag": 90, "castle": 92, "dark": false, "under": false, "noflag": true},   # Vania 1-11 LEVEL H all-new-powers test
 	28: {"lw": 40, "flag": 34, "castle": 36, "dark": false, "under": false, "noflag": true},   # LEVEL Z: blank sandbox (40-tile floor)
-	29: {"lw": 520, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # METROID WORLD: full-size map from meto.png + a new x480-519 boss arena
+	29: {"lw": 580, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # METROID WORLD: full-size map from meto.png + x480-519 BROOD arena + x520-579 TALON arena
 	30: {"lw": 313, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # ENEMIES showcase: one room per enemy + armory + brood boss
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
