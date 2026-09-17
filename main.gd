@@ -996,6 +996,7 @@ func _physics_process(delta: float) -> void:
 	_update_gameplay_collisions()
 	_check_goal()
 	_check_powerup_tiles()
+	_check_life_tiles(delta)
 	_check_pipe_exit()
 	_check_sonic_cut()
 	_check_l14_cut()
@@ -1321,7 +1322,6 @@ func _read_spawns() -> void:
 				36: etype = "urchin"                        # spiky floating mine: slow up/down bob in place
 				37: etype = "brood"                         # BROOD boss: grounded, 3-phase melee+projectile boss
 				38: etype = "talon"                         # TALON boss: flying, telegraph+dive-bomb boss
-				39: etype = "life_station"                  # health-refill tile: stand on it, it stops you and heals
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1693,14 +1693,6 @@ func _spawn_enemies() -> void:
 			vr.spawn(d["pos"])
 			enemies.append(vr)
 			continue
-		# Life station: a paintable health-refill tile. Standing on it locks your movement and
-		# slowly heals you (walk away to leave early).
-		if t == "life_station":
-			var lf = LifeStation.new()
-			lf.main = self
-			level.add_child(lf)
-			lf.global_position = d["pos"] - Vector2(0, 11)   # base rect sits right on the floor
-			continue
 		# Turret: clings to a ceiling, stationary, shoots at the player every 0.5s. Shot-only.
 		if t == "turret":
 			var tu = Enemy.new()
@@ -1833,8 +1825,6 @@ func _wire_powerups() -> void:
 		elif n is SaveStation:
 			n.main = self
 			save_stations.append(n)
-		elif n is LifeStation:
-			n.main = self
 		elif n is GoalStar:
 			n.main = self
 		elif n is GrabPoint:
@@ -2178,6 +2168,44 @@ func _check_powerup_tiles() -> void:
 			powerup_tile_cells.remove_at(i)
 
 
+# painted health-refill icon (tiles.png col 84): stand on it while hurt and it locks your
+# movement + heals you over time. Unlike the tiles above, the icon NEVER gets erased — it's
+# meant to be reused. Only engages while actually below max HP; full-health players walk
+# through it doing nothing.
+const LIFE_HEAL_RANGE := 14.0
+const LIFE_HEAL_RATE := 20.0   # HP per second
+
+func _check_life_tiles(delta: float) -> void:
+	if life_tile_cells.is_empty() or player == null:
+		return
+	var active := false
+	if player.hp < player.MAX_HP:
+		for cell in life_tile_cells:
+			var c := Vector2(cell.x * 16 + 8, cell.y * 16 + 8)
+			if player.global_position.distance_to(c) <= LIFE_HEAL_RANGE:
+				active = true
+				break
+	if active:
+		player.heal_lock = true
+		# player.hp is an int, so banking the fractional heal here (instead of truncating it
+		# away every frame) is what lets a sub-1-HP/frame rate actually accumulate.
+		_life_heal_accum += LIFE_HEAL_RATE * delta
+		var whole := int(_life_heal_accum)
+		if whole > 0:
+			player.hp = mini(player.MAX_HP, player.hp + whole)
+			_life_heal_accum -= whole
+		if _life_fill_sfx == null or not is_instance_valid(_life_fill_sfx) or not _life_fill_sfx.playing:
+			_life_fill_sfx = sfx("sonic_spin")   # looping "filling up" hum, retriggered while active
+	else:
+		if player.heal_lock:
+			player.heal_lock = false        # left the tile (or topped off) — free to move again
+		_life_heal_accum = 0.0
+		if _life_fill_sfx != null and is_instance_valid(_life_fill_sfx):
+			_life_fill_sfx.stop()
+			_life_fill_sfx.queue_free()
+		_life_fill_sfx = null
+
+
 const DOOR_OPEN_RANGE := 160.0   # a switch only opens doors within 10 tiles (case-by-case, not all)
 
 func open_doors(from: Vector2 = Vector2.INF) -> void:
@@ -2214,9 +2242,13 @@ const POWERUP_TILE_SHAPE := {48: "circle", 49: "square", 50: "triangle", 51: "st
 	57: "timeslow", 58: "hover", 65: "balljump", 66: "bomb",
 	81: "chargebeam", 82: "boostball", 83: "longbeam"}
 	# NOTE: 59 is NOT free — it's BIKE_TILE_ATLAS (bike spawner), so the bomb lives at 66.
+const LIFE_TILE_ATLAS := 84    # health-refill icon (Powerups layer) -- unlike the above, NEVER erased
 
 var goal_cells: Array = []
 var powerup_tile_cells: Array = []    # painted power-up tiles as [cell, shape] (grant on touch)
+var life_tile_cells: Array = []       # painted health-refill tiles — persistent, reusable, never erased
+var _life_heal_accum := 0.0           # fractional HP banked between frames (player.hp is an int)
+var _life_fill_sfx: AudioStreamPlayer = null   # looping "filling up" sound while healing at one
 var grab_tile_pos: Array = []   # world centres of painted hook tiles (paint-placed grapple anchors)
 
 func _spawn_switch_tiles() -> void:
@@ -2224,6 +2256,7 @@ func _spawn_switch_tiles() -> void:
 	goal_cells.clear()
 	grab_tile_pos.clear()
 	powerup_tile_cells.clear()
+	life_tile_cells.clear()
 	var start_found := false
 	# HOOK tiles stay on the Terrain layer (they aren't a "special marker")
 	for cell in terrain.get_used_cells():
@@ -2234,7 +2267,9 @@ func _spawn_switch_tiles() -> void:
 	if powerups_layer:
 		for cell in powerups_layer.get_used_cells():
 			var pax: int = powerups_layer.get_cell_atlas_coords(cell).x
-			if POWERUP_TILE_SHAPE.has(pax):
+			if pax == LIFE_TILE_ATLAS:
+				life_tile_cells.append(cell)                   # stays forever, reusable
+			elif POWERUP_TILE_SHAPE.has(pax):
 				powerup_tile_cells.append([cell, POWERUP_TILE_SHAPE[pax]])  # stays until collected
 			elif pax == BIKE_TILE_ATLAS:
 				powerups_layer.erase_cell(cell)                # the tile just marks where a bike spawns
