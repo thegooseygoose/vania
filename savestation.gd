@@ -1,51 +1,55 @@
 @tool
 extends Area2D
 class_name SaveStation
-## A placeable save point. Walk into it to save your progress (abilities + position) —
-## dying then respawns you here with those abilities. Editor-placeable/movable like the others.
+## A placeable save point, drawn as a small solid-looking block you stand next to. Get close
+## and press UP to save your progress (abilities + position) — dying then respawns you here
+## with those abilities. Editor-placeable/movable like the others.
+
+const SAVE_RANGE := 14.0
 
 var main                       # set by Main._wire_powerups
-var _saved := false            # already saved this visit? (reset when the player walks away)
 var _t := 0.0                  # animation clock
+var _near := false             # player is close enough to save — shows the "PRESS UP" prompt
+var _flash_t := 0.0            # brief bright flash right after an actual save
+var _font: PixelFont
 
 func _ready() -> void:
 	z_index = 4
+	_font = PixelFont.new()
 	if not Engine.is_editor_hint():
 		var cs := CollisionShape2D.new()
 		var r := RectangleShape2D.new()
-		r.size = Vector2(16, 28)
+		r.size = Vector2(16, 16)
 		cs.shape = r
 		add_child(cs)
 
 func _physics_process(delta: float) -> void:
 	_t += delta
-	queue_redraw()                                  # pulse the screen glow
-	if Engine.is_editor_hint() or main == null or main.player == null:
-		return
-	var d: float = global_position.distance_to(main.player.global_position)
-	if d <= 16.0:
-		if not _saved:
-			_saved = true
+	if _flash_t > 0.0:
+		_flash_t = maxf(0.0, _flash_t - delta)
+	if not Engine.is_editor_hint() and main != null and main.player != null:
+		_near = global_position.distance_to(main.player.global_position) <= SAVE_RANGE
+		if _near and Input.is_action_just_pressed("move_up"):
 			main.save_checkpoint(global_position)   # snapshot + write the save file
-	elif d > 26.0:
-		_saved = false                              # walked away — arm again for a re-save
+			_flash_t = 0.5
+	queue_redraw()
 
 func _draw() -> void:
-	# a small green "data terminal": dark cabinet + a glowing screen + a base, cyber-matching the bg
+	# a small solid-looking green data block, flush with the ground — stand by it and press
+	# UP to save (same floating-prompt convention as the Bike's "PRESS E / RB")
 	var body := Color(0.10, 0.16, 0.12)
 	var edge := Color(0.20, 0.85, 0.38)
-	var screen := Color(0.25, 1.0, 0.45)
-	# cabinet
-	draw_rect(Rect2(-7, -18, 14, 26), body)
-	draw_rect(Rect2(-7, -18, 14, 26), edge, false, 1.0)
-	# screen with a pulsing glow
-	var pulse: float = 0.55 + 0.45 * sin(_t * 3.0)
-	draw_rect(Rect2(-5, -15, 10, 9), Color(0.05, 0.1, 0.07))
-	draw_rect(Rect2(-5, -15, 10, 9), Color(screen.r, screen.g, screen.b, pulse))
-	# two scanlines on the screen
-	draw_line(Vector2(-4, -12), Vector2(4, -12), Color(0.1, 0.3, 0.15, pulse), 1.0)
-	draw_line(Vector2(-4, -10), Vector2(2, -10), Color(0.1, 0.3, 0.15, pulse), 1.0)
-	# base
-	draw_rect(Rect2(-8, 8, 16, 3), body)
-	# a soft glow disc under it
-	draw_circle(Vector2(0, -10), 12.0, Color(edge.r, edge.g, edge.b, 0.06 * pulse))
+	var top := Color(0.25, 1.0, 0.45)
+	var pulse: float = 1.0 if _flash_t > 0.0 else 0.55 + 0.45 * sin(_t * 3.0)
+	# the block itself (16x16 — one tile, so it visually reads as a block you stand on)
+	draw_rect(Rect2(-8, -8, 16, 16), body)
+	draw_rect(Rect2(-8, -8, 16, 16), edge, false, 1.0)
+	# glowing top face + a pulsing status light
+	draw_rect(Rect2(-6, -7, 12, 3), Color(top.r, top.g, top.b, pulse))
+	draw_circle(Vector2(0, 2), 2.0, Color(top.r, top.g, top.b, pulse))
+	# floating "PRESS UP TO SAVE" prompt when close enough
+	if _near and _font:
+		var label := "PRESS UP TO SAVE"
+		var x: float = -_font.text_w(label, 1.0) / 2.0
+		_font.draw_text(self, Vector2(x + 1.0, -13.0), label, 1.0, Color(0, 0, 0, 0.75))  # shadow
+		_font.draw_text(self, Vector2(x, -14.0), label, 1.0, Color(0.4, 1.0, 0.55))
