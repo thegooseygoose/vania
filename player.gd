@@ -675,7 +675,10 @@ func _update_alive(delta: float) -> void:
 		var held_fire: bool = Input.is_action_pressed("boomerang") \
 			or (not grappling and not extending and Input.is_action_pressed("shoot"))
 		if held_fire:
+			var was_full: bool = charge_t >= CHARGE_TIME
 			charge_t += delta
+			if not was_full and charge_t >= CHARGE_TIME:
+				main.sfx("powerup_appear")   # a distinct "ready!" ding the instant it hits full charge
 		# charging-up sound: loop it (retrigger when it finishes) for as long as you're still
 		# charging; stop it the instant it's fully charged so silence = "ready to release" (same
 		# convention as the Boost Ball's own charge sound).
@@ -1458,7 +1461,13 @@ func _draw() -> void:
 	# while aiming up (mirrors _facing_up(), the same check the shot code uses for its direction).
 	if main.selected_char == "hal2" and not grappling and not extending and not morphed:
 		const GUN_COLOR := Color(0.85, 0.15, 0.15)   # bright red — easy to spot against his blue suit
-		if _facing_up():
+		# FROZEN during the power-up banner: _draw() re-runs every frame regardless of the freeze
+		# (queue_redraw() is unconditional, unlike _update_alive which is what actually stops while
+		# frozen), so without this the gun kept swinging to match whatever direction keys you were
+		# still holding even while the rest of the world was paused. Falls back to the neutral
+		# chest-height pose, same as standing still with nothing held.
+		var powerup_frozen: bool = main.powerup_freeze_t > 0.0
+		if not powerup_frozen and _facing_up():
 			# DIAGONAL: holding Left/Right too (see _fire_shot's matching check) swings the barrel to
 			# a 45° angle instead of straight up, so the gun visibly points where the shot is actually
 			# going. Anchored near the same spot the straight-up barrel starts from, just rotated.
@@ -1483,7 +1492,7 @@ func _draw() -> void:
 	if has_chargebeam and charge_t > 0.0 and not grappling and not extending and not morphed:
 		var cpct: float = clampf(charge_t / CHARGE_TIME, 0.0, 1.0)
 		var muzzle_local: Vector2
-		if _facing_up():
+		if main.powerup_freeze_t <= 0.0 and _facing_up():
 			muzzle_local = Vector2(float(facing) * 2.0, -col_size.y * 0.5 - 4.0)
 		else:
 			muzzle_local = Vector2(float(facing) * 8.0, -4.0)
