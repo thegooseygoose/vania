@@ -399,23 +399,32 @@ func _paint_banner_box(ci: CanvasItem, x: float, y: float, w2: float, h2: float)
 
 # control-button words (the literal keys/buttons named in a description, e.g.
 # "PRESS X TO FIRE") are picked out and drawn in red so they stand out from the
-# instruction text around them. Deliberately excludes "A" (collides with the
-# English article "a", never used here to mean the A button anyway). "JUMP" is
-# included too — it's always the action word for the Jump button, so calling
-# it out the same way as a literal key name teaches which word means "press
-# the jump button" even though it's spelled as a whole word, not a key letter.
+# instruction text around them. "A" is deliberately NOT in this blanket list — it
+# collides with the English article "a" ("DROPS A BOMB", "A DIVING KICK"); it's
+# only ever the A button when it directly follows the word PRESS (see
+# _is_press_a below), which is unambiguous. "JUMP" is included too — it's always
+# the action word for the Jump button, so calling it out the same way as a
+# literal key name teaches which word means "press the jump button" even though
+# it's spelled as a whole word, not a key letter.
 const _CONTROL_WORDS := ["UP", "DOWN", "LEFT", "RIGHT", "X", "Y", "B", "C", "Z",
 	"F", "K", "T", "O", "W", "L3", "R3", "LB", "RB", "LT", "RT", "JUMP"]
 
-func _is_control_word(word: String) -> bool:
-	# strip trailing punctuation (a sentence-ending "DOWN." shouldn't miss the match)
+func _strip_punct(word: String) -> String:
 	var w := word.to_upper()
 	while w.length() > 0 and ".,!?:;".contains(w[w.length() - 1]):
 		w = w.substr(0, w.length() - 1)
-	return _CONTROL_WORDS.has(w)
+	return w
+
+func _is_control_word(word: String) -> bool:
+	return _CONTROL_WORDS.has(_strip_punct(word))
+
+# "A" only means the A button right after PRESS ("PRESS A TO JUMP") — everywhere
+# else it's the English article, so it must NOT get the control-word color.
+func _is_press_a(word: String, prev_word: String) -> bool:
+	return _strip_punct(word) == "A" and _strip_punct(prev_word) == "PRESS"
 
 # draws one line word-by-word, centred in a box starting at `x` with width `center_w`,
-# with any control-button word (see _CONTROL_WORDS) drawn in red instead of `col`.
+# with any control-button word (see _CONTROL_WORDS / _is_press_a) drawn in red instead of `col`.
 func _draw_line_with_controls(ci: CanvasItem, x: float, y: float, line: String, scale: float, col: Color, center_w: float) -> void:
 	var words := line.split(" ")
 	var total_w := font.text_w(line, scale)
@@ -423,7 +432,9 @@ func _draw_line_with_controls(ci: CanvasItem, x: float, y: float, line: String, 
 	var space_w: float = font.text_w(" ", scale)
 	for i in words.size():
 		var word: String = words[i]
-		var wcol: Color = Color(1.0, 0.25, 0.25) if _is_control_word(word) else col
+		var prev_word: String = words[i - 1] if i > 0 else ""
+		var is_ctrl: bool = _is_control_word(word) or _is_press_a(word, prev_word)
+		var wcol: Color = Color(1.0, 0.25, 0.25) if is_ctrl else col
 		font.draw_text(ci, Vector2(pen, y), word, scale, wcol)
 		pen += font.text_w(word, scale) + space_w
 
