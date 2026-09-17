@@ -77,7 +77,8 @@ const BOOST_SPEED := 780.0        # speed of the boost roll — 3x the original 
 const BOOST_TIME := 0.35          # how long the boost roll lasts
 var has_chargebeam := false       # CHARGE BEAM: hold Shot to charge a blast worth 3 normal shots
 var charge_t := 0.0
-const CHARGE_TIME := 0.9          # seconds held to reach a full charge
+const CHARGE_TIME := 1.8          # seconds held to reach a full charge (was 0.9 -- doubled)
+var _charge_beam_sfx: AudioStreamPlayer = null   # the charging-up sound, looped manually while charging
 var has_longbeam := false         # LONG BEAM: the shot travels a full screen width instead of 48px
 var has_hover := false            # HOVER JETS: hold Jump in the air to float down slowly (limited fuel)
 var hover_fuel := 0.0
@@ -433,6 +434,7 @@ func spawn(feet_pos: Vector2) -> void:
 	boost_charge = 0.0
 	_boost_run_held = false
 	_stop_boost_charge_sfx()
+	_stop_charge_beam_sfx()
 	charge_t = 0.0
 	dashing = false
 	riderkicking = false
@@ -674,6 +676,14 @@ func _update_alive(delta: float) -> void:
 			or (not grappling and not extending and Input.is_action_pressed("shoot"))
 		if held_fire:
 			charge_t += delta
+		# charging-up sound: loop it (retrigger when it finishes) for as long as you're still
+		# charging; stop it the instant it's fully charged so silence = "ready to release" (same
+		# convention as the Boost Ball's own charge sound).
+		if held_fire and charge_t < CHARGE_TIME:
+			if _charge_beam_sfx == null or not is_instance_valid(_charge_beam_sfx) or not _charge_beam_sfx.playing:
+				_charge_beam_sfx = main.sfx("sonic_spin")
+		else:
+			_stop_charge_beam_sfx()
 		var released_fire: bool = Input.is_action_just_released("boomerang") \
 			or Input.is_action_just_released("shoot")
 		if released_fire and charge_t > 0.0:
@@ -1214,6 +1224,13 @@ func _stop_boost_charge_sfx() -> void:
 		_boost_charge_sfx.stop()
 		_boost_charge_sfx.queue_free()
 	_boost_charge_sfx = null
+
+
+func _stop_charge_beam_sfx() -> void:
+	if _charge_beam_sfx != null and is_instance_valid(_charge_beam_sfx):
+		_charge_beam_sfx.stop()
+		_charge_beam_sfx.queue_free()
+	_charge_beam_sfx = null
 
 
 func _boost_charge_physics(delta: float) -> void:
