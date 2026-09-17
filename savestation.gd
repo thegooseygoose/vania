@@ -61,11 +61,10 @@ func _draw() -> void:
 	# glowing top face + a pulsing status light
 	draw_rect(Rect2(-6, -7, 12, 3), Color(top.r, top.g, top.b, pulse))
 	draw_circle(Vector2(0, 2), 2.0, Color(top.r, top.g, top.b, pulse))
-	# floating "PRESS UP TO SAVE" prompt when close enough
-	if _near and _font:
-		# raised well above the block so it clears a player standing ON TOP of it, not just
-		# one standing beside it
+	# floating "PRESS UP TO SAVE" prompt when close enough — raised well above the block (clears
+	# a player standing ON TOP of it, not just one beside it) and flashing to draw the eye
+	if _near and _font and fmod(_t, 0.8) < 0.5:
 		var label := "PRESS UP TO SAVE"
 		var x: float = -_font.text_w(label, 1.0) / 2.0
-		_font.draw_text(self, Vector2(x + 1.0, -37.0), label, 1.0, Color(0, 0, 0, 0.75))  # shadow
-		_font.draw_text(self, Vector2(x, -38.0), label, 1.0, Color(0.4, 1.0, 0.55))
+		_font.draw_text(self, Vector2(x + 1.0, -57.0), label, 1.0, Color(0, 0, 0, 0.75))  # shadow
+		_font.draw_text(self, Vector2(x, -58.0), label, 1.0, Color(0.4, 1.0, 0.55))
