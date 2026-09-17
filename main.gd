@@ -2235,6 +2235,7 @@ const START_TILE_ATLAS := 18    # blue arrow tile = where Mario starts (only one
 const GOAL_TILE_ATLAS := 19     # gold star tile = touch it to finish the level (COURSE CLEAR)
 const HOOK_TILE_ATLAS := 47     # yellow-U hook tile = a paintable grapple point (stays visible)
 const BIKE_TILE_ATLAS := 59     # bike tile (Powerups layer) = spawns a rideable Bike where painted
+const SAVE_TILE_ATLAS := 85     # save-station marker (Powerups layer) = spawns a SaveStation where painted
 # paintable power-up icon tiles (power.png) -> the power they grant on touch.
 # 48 morph, 49 double jump, 50 brick break, 51 grapple, 52 boomerang, 53 wall jump, 54 water gravity.
 const POWERUP_TILE_SHAPE := {48: "circle", 49: "square", 50: "triangle", 51: "star",
@@ -2278,6 +2279,13 @@ func _spawn_switch_tiles() -> void:
 				level.add_child(bk)
 				bk.position = Vector2(cell.x * 16 + 8, cell.y * 16 + 8)
 				bikes.append(bk)
+			elif pax == SAVE_TILE_ATLAS:
+				powerups_layer.erase_cell(cell)                # marker only -- SaveStation draws its
+				var sv := SaveStation.new()                    # own visual, so erase it here or the two
+				sv.main = self                                 # would double-draw/overlap at this cell
+				level.add_child(sv)
+				sv.position = Vector2(cell.x * 16 + 8, cell.y * 16 + 8)
+				save_stations.append(sv)
 	# MARKER tiles (switch/door/start/goal) live on their own Markers layer
 	if markers_layer:
 		for cell in markers_layer.get_used_cells():
