@@ -1082,7 +1082,12 @@ func _fire_shot(charged: bool) -> void:
 	else:
 		boomerangs.append(main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing, Vector2(facing, 0), charged, has_longbeam))
 		velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back
-		velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
+		# the floaty upward pop is only for firing from the GROUND (or rising) — clamping velocity.y
+		# unconditionally used to yank an active FALL upward too, killing your jump's natural drop the
+		# instant you fired mid-air. Grounded firing keeps the little responsive hop; airborne firing
+		# (rising or falling) now leaves velocity.y completely alone, so you fall/arc as normal.
+		if grounded:
+			velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)
 	main.sfx("shot")                                  # gun shot (own sound; "fireball" stays for enemy/Mario fire)
 
 
@@ -1437,7 +1442,19 @@ func _draw() -> void:
 	if main.selected_char == "hal2" and not grappling and not extending and not morphed:
 		const GUN_COLOR := Color(0.85, 0.15, 0.15)   # bright red — easy to spot against his blue suit
 		if _facing_up():
-			draw_rect(Rect2(-1.5, -20.0, 3.0, 8.0), GUN_COLOR)     # barrel above the head
+			# DIAGONAL: holding Left/Right too (see _fire_shot's matching check) swings the barrel to
+			# a 45° angle instead of straight up, so the gun visibly points where the shot is actually
+			# going. Anchored near the same spot the straight-up barrel starts from, just rotated.
+			var side := 0
+			if Input.is_action_pressed("move_left"): side = -1
+			elif Input.is_action_pressed("move_right"): side = 1
+			if side != 0:
+				var ang: float = -PI / 4.0 if side > 0 else -3.0 * PI / 4.0   # up-right / up-left
+				draw_set_transform(Vector2(0.0, -13.0), ang, Vector2.ONE)
+				draw_rect(Rect2(0.0, -1.5, 9.0, 3.0), GUN_COLOR)              # barrel extends outward
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)           # reset
+			else:
+				draw_rect(Rect2(-1.5, -20.0, 3.0, 8.0), GUN_COLOR)     # barrel above the head
 		else:
 			var gx: float = 6.0 if facing >= 0 else -14.0
 			draw_rect(Rect2(gx, -5.0, 8.0, 3.0), GUN_COLOR)        # barrel at chest height
