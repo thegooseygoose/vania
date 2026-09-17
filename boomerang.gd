@@ -4,8 +4,10 @@ extends Node2D
 
 var main
 var dir := 1
-var aim := Vector2i(1, 0)      # travel direction of the SHOT bullet: (±1,0) sideways or (0,-1) up
+var aim := Vector2(1, 0)       # travel direction of the SHOT bullet: (±1,0) sideways, (0,-1) up, or a
+                                # normalized (±0.7071,-0.7071) diagonal
 var power := 1                 # CHARGE BEAM: a fully-charged shot fires with power=3 (3 normal shots' worth)
+var long_beam := false         # LONG BEAM: ignores BULLET_RANGE, travels a full screen width instead
 var t := 0.0
 var returning := false
 const OUT_TIME := 0.64        # flies out longer → about twice the distance
@@ -88,10 +90,13 @@ func _physics_process(delta: float) -> void:
 	t += delta
 	queue_redraw()
 	if USE_NEW_BOOM:
-		# BULLET: fly straight at constant speed until it has travelled BULLET_RANGE (64px),
-		# then stop & despawn. (Also despawns off-screen / after BULLET_LIFE as a safety.)
+		# BULLET: fly straight at constant speed until it has travelled the range cap, then stop &
+		# despawn. Normally BULLET_RANGE (48px, NES short beam); LONG BEAM instead lets it travel a
+		# full screen width — the existing off-screen despawn check below is what actually stops it.
+		# (Also despawns off-screen / after BULLET_LIFE as a safety.)
+		var range_cap: float = float(main.VIEW_W) if long_beam else BULLET_RANGE
 		var step: float = BULLET_SPEED * float(power) * delta   # CHARGE BEAM: power=3 flies 3x faster
-		step = minf(step, BULLET_RANGE - _bullet_traveled)   # don't overshoot the 64px range
+		step = minf(step, range_cap - _bullet_traveled)   # don't overshoot the range cap
 		global_position += Vector2(aim) * step               # sideways OR up, per aim
 		_bullet_traveled += step
 		# blocked by a solid wall/block — it can't fly through terrain. A brick, though, BREAKS
@@ -102,7 +107,7 @@ func _physics_process(delta: float) -> void:
 				main.smash_tile(cell.x, cell.y)
 			queue_free()
 			return
-		if _bullet_traveled >= BULLET_RANGE \
+		if _bullet_traveled >= range_cap \
 				or t > BULLET_LIFE \
 				or global_position.x < main.cam_x - 32.0 \
 				or global_position.x > main.cam_x + float(main.VIEW_W) + 32.0 \

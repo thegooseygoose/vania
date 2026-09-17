@@ -78,6 +78,7 @@ const BOOST_TIME := 0.35          # how long the boost roll lasts
 var has_chargebeam := false       # CHARGE BEAM: hold Shot to charge a blast worth 3 normal shots
 var charge_t := 0.0
 const CHARGE_TIME := 0.9          # seconds held to reach a full charge
+var has_longbeam := false         # LONG BEAM: the shot travels a full screen width instead of 48px
 var has_hover := false            # HOVER JETS: hold Jump in the air to float down slowly (limited fuel)
 var hover_fuel := 0.0
 const HOVER_FUEL_MAX := 1.1       # seconds of hover per airtime
@@ -91,7 +92,8 @@ var riding := false             # on the bike — lava becomes solid footing you
 var bike = null                # the Bike node currently being ridden
 const BIKE_MOVE := 1.08         # bike speed of normal (0.72 +50%)
 const BIKE_MOUNT_RANGE := 28.0  # how close you must be to a bike to press the button and mount
-var boomerang                   # the one active boomerang (only one at a time)
+var boomerangs: Array = []      # active shots in flight (up to MAX_ACTIVE_SHOTS at once)
+const MAX_ACTIVE_SHOTS := 2     # fire rate: was locked to 1 shot in flight at a time; 2 = double rate
 var wall_dir := 0               # -1 wall on left, +1 wall on right, 0 none (wall-jump)
 var last_wall_dir := 0          # last wall jumped from, to alternate in a tight shaft
 const WALL_SLIDE_MAX := 46.0    # slow cling-slide down a wall (easy to time the jump)
@@ -426,6 +428,7 @@ func spawn(feet_pos: Vector2) -> void:
 	hover_fuel = HOVER_FUEL_MAX
 	has_boostball = bool(ab.get("boostball", false))
 	has_chargebeam = bool(ab.get("chargebeam", false))
+	has_longbeam = bool(ab.get("longbeam", false))
 	boosting = false
 	boost_charge = 0.0
 	_boost_run_held = false
@@ -664,7 +667,8 @@ func _update_alive(delta: float) -> void:
 	# keyboard "shoot" only throws when we didn't just start a grapple this frame).
 	# CHARGE BEAM: hold the button to charge; releasing fires a power=3 blast. Without
 	# the power-up it's the original instant-press shot (charged never triggers).
-	var can_fire_now: bool = has_boomerang and not morphed and (boomerang == null or not is_instance_valid(boomerang))
+	boomerangs = boomerangs.filter(func(b): return is_instance_valid(b))
+	var can_fire_now: bool = has_boomerang and not morphed and boomerangs.size() < MAX_ACTIVE_SHOTS
 	if has_chargebeam and can_fire_now:
 		var held_fire: bool = Input.is_action_pressed("boomerang") \
 			or (not grappling and not extending and Input.is_action_pressed("shoot"))
@@ -1061,14 +1065,22 @@ func bomb_bounced() -> void:
 func _fire_shot(charged: bool) -> void:
 	var aim_up := _facing_up()   # only shoot UP when actually FACING up (standing still / jumping) — not while walking
 	if aim_up:
-		# fire UP: bullet leaves the GUN MUZZLE (the raised barrel sits ~2px to the facing side of
-		# centre in the up-pose art), just above the barrel tip; recoil shoves him DOWN a touch
+		# DIAGONAL: while aiming up, ALSO holding Left/Right fires at a 45° diagonal instead of
+		# straight up (Contra/Metroid-style). Reuses the same up-pose art/muzzle — no dedicated
+		# diagonal art exists, and the pose reads close enough either way.
+		var side := 0
+		if Input.is_action_pressed("move_left"): side = -1
+		elif Input.is_action_pressed("move_right"): side = 1
+		const DIAG := 0.70710678   # sqrt(2)/2, so the diagonal travels at the same speed as straight shots
+		var aim_dir: Vector2 = Vector2(float(side) * DIAG, -DIAG) if side != 0 else Vector2(0, -1)
+		# fire UP/DIAGONAL: bullet leaves the GUN MUZZLE (the raised barrel sits ~2px to the facing
+		# side of centre in the up-pose art), just above the barrel tip; recoil shoves him DOWN a touch
 		var muzzle := global_position + Vector2(float(facing) * 2.0, -col_size.y * 0.5 - 4.0)
-		boomerang = main.throw_boomerang(muzzle, facing, true, charged)
+		boomerangs.append(main.throw_boomerang(muzzle, facing, aim_dir, charged, has_longbeam))
 		velocity.y += SHOT_RECOIL_UP * 0.7
 		_nes_jump = false          # the recoil pop keeps its floaty arc (not cut by the NES jump release)
 	else:
-		boomerang = main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing, false, charged)
+		boomerangs.append(main.throw_boomerang(global_position + Vector2(facing * 8, -4), facing, Vector2(facing, 0), charged, has_longbeam))
 		velocity.x -= float(facing) * SHOT_RECOIL   # recoil: shove the shooter back
 		velocity.y = minf(velocity.y, -SHOT_RECOIL_UP)   # + a floaty upward pop
 	main.sfx("shot")                                  # gun shot (own sound; "fireball" stays for enemy/Mario fire)
@@ -1430,6 +1442,29 @@ func _draw() -> void:
 			var gx: float = 6.0 if facing >= 0 else -14.0
 			draw_rect(Rect2(gx, -5.0, 8.0, 3.0), GUN_COLOR)        # barrel at chest height
 
+	# CHARGE BEAM: a pulsing muzzle flash at the gun while charging, so it's visible from the
+	# instant you start holding the shot button — quickens and brightens as the charge builds,
+	# then flips to the "charged" orange (matching the bigger orange bolt _fire_shot fires once
+	# CHARGE_TIME is reached) so releasing right then reads as "topped off, let go now".
+	if has_chargebeam and charge_t > 0.0 and not grappling and not extending and not morphed:
+		var cpct: float = clampf(charge_t / CHARGE_TIME, 0.0, 1.0)
+		var muzzle_local: Vector2
+		if _facing_up():
+			muzzle_local = Vector2(float(facing) * 2.0, -col_size.y * 0.5 - 4.0)
+		else:
+			muzzle_local = Vector2(float(facing) * 8.0, -4.0)
+		var full_charge: bool = charge_t >= CHARGE_TIME
+		var flash_col: Color = Color(1.0, 0.55, 0.15) if full_charge else Color(1.0, 0.95, 0.5)
+		var pulse: float = 0.6 + 0.4 * sin(charge_t * (10.0 + cpct * 30.0))   # flicker speeds up near full
+		var r: float = (2.0 + cpct * 3.0) * pulse
+		draw_circle(muzzle_local, r * 1.8, Color(flash_col.r, flash_col.g, flash_col.b, 0.35 * pulse))
+		draw_circle(muzzle_local, r, flash_col)
+		var ray_len: float = 3.0 + cpct * 5.0
+		for i in 4:
+			var ang: float = (PI / 4.0) * float(i) + charge_t * 6.0   # rays slowly spin
+			var rp: Vector2 = Vector2(cos(ang), sin(ang)) * ray_len * pulse
+			draw_line(muzzle_local, muzzle_local + rp, flash_col, 1.0)
+
 
 # Copy one claw's box out of the sheet into its own texture, keeping ONLY the largest
 # 8-connected opaque blob so a neighbouring claw whose bounding box overlaps this one can't
@@ -1651,15 +1686,19 @@ func _apply_frame(t: Texture2D, flip := false) -> void:
 	# bottom-align the sprite to the collision box
 	sprite.position.y = col_size.y / 2.0 - t.get_height() / 2.0
 
-# TRUE when the player is in the AIM-UP pose (so a shot goes straight UP). Needs the boomerang
-# power, Up held (not Down), not grappling/ducking, and either being airborne OR nearly still on
-# the ground. So WALKING + Up shoots FORWARD — you must be FACING up (standing or jumping) to
-# shoot up. Shared by the shot code and the animation so the pose and the shot always agree.
+# TRUE when the player is in the AIM-UP pose (so a shot goes straight up OR diagonal). Needs the
+# boomerang power, Up held (not Down), not grappling/ducking. Also holding Left/Right = a DIAGONAL
+# shot (see _fire_shot) — that's allowed even while moving that direction, since holding the key IS
+# how you ask for a diagonal. Straight-up (no side key) still needs to be airborne OR nearly still,
+# so WALKING + Up alone doesn't suddenly shoot up mid-stride. Shared by the shot code and the
+# animation so the pose and the shot always agree.
 func _facing_up() -> bool:
 	if not has_boomerang or grappling or ducking:
 		return false
 	if not Input.is_action_pressed("move_up") or Input.is_action_pressed("move_down"):
 		return false
+	if Input.is_action_pressed("move_left") or Input.is_action_pressed("move_right"):
+		return true
 	return not grounded or absf(velocity.x) <= 9.0
 
 
@@ -1695,10 +1734,10 @@ func _pose_key_flip() -> Array:
 	if grappling:
 		# always the raised-arm jump pose while swinging, so his fist is where the chain attaches
 		return ["_jump_r" if facing >= 0 else "_jump_l", false]
-	# AIMING UP: hold Up on the ground (standing) -> raised-arm pose, reads as pointing the gun up
-	if grounded and has_boomerang and Input.is_action_pressed("move_up") \
-			and not Input.is_action_pressed("move_down") \
-			and absf(velocity.x) <= 9.0 and not ducking:
+	# AIMING UP (or DIAGONAL): raised-arm pose, reads as pointing the gun up/diagonally. Delegates
+	# to _facing_up() (shared with the shot code, see its comment) rather than duplicating the
+	# condition — a duplicate copy here once drifted out of sync with the diagonal-shot exception.
+	if _facing_up() and not ducking:
 		return ["_jump_r" if facing >= 0 else "_jump_l", false]
 	if ducking and (big or fire):
 		# duck art faces left; mirror when facing right so it keeps facing

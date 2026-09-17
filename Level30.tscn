@@ -1,11 +1,11 @@
-[gd_scene format=4 uid="uid://dw627cmo2wsf2"]
+[gd_scene format=4]
 
-[ext_resource type="TileSet" uid="uid://bgigmyhw2417a" path="res://tiles.tileset.tres" id="1_b1m6n"]
-[ext_resource type="TileSet" uid="uid://c76pnrms2syvg" path="res://tiles_markers.tileset.tres" id="2_3rgh5"]
-[ext_resource type="TileSet" uid="uid://disucjitm6xkb" path="res://tiles_powerups.tileset.tres" id="3_evh46"]
-[ext_resource type="TileSet" uid="uid://bkpthyv5r5oqa" path="res://enemy_tiles.tileset.tres" id="4_0untp"]
-[ext_resource type="TileSet" uid="uid://dtml5nti0lum5" path="res://coin_tiles.tileset.tres" id="5_w06bw"]
-[ext_resource type="Script" uid="uid://b4c43u1ag438c" path="res://savestation.gd" id="6_nkc36"]
+[ext_resource type="TileSet" path="res://tiles.tileset.tres" id="1_b1m6n"]
+[ext_resource type="TileSet" path="res://tiles_markers.tileset.tres" id="2_3rgh5"]
+[ext_resource type="TileSet" path="res://tiles_powerups.tileset.tres" id="3_evh46"]
+[ext_resource type="TileSet" path="res://enemy_tiles.tileset.tres" id="4_0untp"]
+[ext_resource type="TileSet" path="res://coin_tiles.tileset.tres" id="5_w06bw"]
+[ext_resource type="Script" path="res://savestation.gd" id="6_nkc36"]
 
 [node name="LevelEnemies" type="Node2D" unique_id=1967167246]
 
@@ -18,7 +18,7 @@ tile_map_data = PackedByteArray("AABnAQ0AAAATAAAAAAA=")
 tile_set = ExtResource("2_3rgh5")
 
 [node name="Powerups" type="TileMapLayer" parent="." unique_id=2101383913]
-tile_map_data = PackedByteArray("AAAJAA0AAAAwAAAAAAAMAA0AAAAxAAAAAAAPAA0AAAAyAAAAAAASAA0AAAAzAAAAAAAVAA0AAAA0AAAAAAAYAA0AAAA1AAAAAAAbAA0AAAA2AAAAAAAeAA0AAAA3AAAAAAAhAA0AAAA4AAAAAAAkAA0AAAA5AAAAAAAnAA0AAAA6AAAAAAAqAA0AAABBAAAAAAAtAA0AAABCAAAAAAAwAA0AAABRAAAAAAAzAA0AAABSAAAAAAA=")
+tile_map_data = PackedByteArray("AAAJAA0AAAAwAAAAAAAMAA0AAAAxAAAAAAAPAA0AAAAyAAAAAAASAA0AAAAzAAAAAAAVAA0AAAA0AAAAAAAYAA0AAAA1AAAAAAAbAA0AAAA2AAAAAAAeAA0AAAA3AAAAAAAhAA0AAAA4AAAAAAAkAA0AAAA5AAAAAAAnAA0AAAA6AAAAAAAqAA0AAABBAAAAAAAtAA0AAABCAAAAAAAwAA0AAABRAAAAAAAzAA0AAABSAAAAAAA4AA0AAABTAAAAAAA=")
 tile_set = ExtResource("3_evh46")
 
 [node name="EnemyTiles" type="TileMapLayer" parent="." unique_id=47774913]

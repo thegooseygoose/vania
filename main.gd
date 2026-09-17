@@ -2096,6 +2096,7 @@ func save_checkpoint(pos: Vector2) -> void:
 		"waterwalk": player.has_waterwalk, "dash": player.has_dash,
 		"riderkick": player.has_riderkick, "timeslow": player.has_timeslow, "hover": player.has_hover,
 		"boostball": player.has_boostball, "chargebeam": player.has_chargebeam,
+		"longbeam": player.has_longbeam,
 	}
 	checkpoint_active = true
 	checkpoint_pos = pos
@@ -2200,7 +2201,7 @@ const BIKE_TILE_ATLAS := 59     # bike tile (Powerups layer) = spawns a rideable
 const POWERUP_TILE_SHAPE := {48: "circle", 49: "square", 50: "triangle", 51: "star",
 	52: "boomerang", 53: "diamond", 54: "waterwalk", 55: "dash", 56: "riderkick",
 	57: "timeslow", 58: "hover", 65: "balljump", 66: "bomb",
-	81: "chargebeam", 82: "boostball"}
+	81: "chargebeam", 82: "boostball", 83: "longbeam"}
 	# NOTE: 59 is NOT free — it's BIKE_TILE_ATLAS (bike spawner), so the bomb lives at 66.
 
 var goal_cells: Array = []
@@ -2285,12 +2286,13 @@ func nearest_grab_point(from: Vector2, rng: float) -> Vector2:
 	return best
 
 
-func throw_boomerang(pos: Vector2, dir: int, up: bool = false, charged: bool = false):
+func throw_boomerang(pos: Vector2, dir: int, aim_dir: Vector2 = Vector2.ZERO, charged: bool = false, long_beam: bool = false):
 	var b = load("res://boomerang.gd").new()
 	b.main = self
 	b.dir = dir
-	b.aim = Vector2i(0, -1) if up else Vector2i(dir, 0)   # aim UP (d-pad up) or sideways
+	b.aim = aim_dir if aim_dir != Vector2.ZERO else Vector2(dir, 0)   # explicit aim (up/diagonal), else sideways
 	b.power = 3 if charged else 1     # CHARGE BEAM: a full charge hits for 3 normal shots
+	b.long_beam = long_beam           # LONG BEAM: travels a full screen width instead of BULLET_RANGE
 	add_child(b)
 	b.global_position = pos
 	return b
@@ -2304,6 +2306,7 @@ const POWERUP_NAME := {
 	"star": "GRAPPLE BEAM", "boomerang": "SHOT", "waterwalk": "GRAVITY SUIT",
 	"dash": "DASH ATTACK", "riderkick": "RIDER KICK", "timeslow": "OVERCLOCK",
 	"hover": "HOVER JETS", "chargebeam": "CHARGE BEAM", "boostball": "BOOST BALL",
+	"longbeam": "LONG BEAM",
 }
 const POWERUP_DESC := {
 	"square": "LETS YOU JUMP AGAIN IN MID-AIR. PRESS JUMP A SECOND TIME WHILE AIRBORNE.",
@@ -2321,6 +2324,7 @@ const POWERUP_DESC := {
 	"hover": "LETS YOU FLOAT GENTLY WHILE FALLING. HOLD JUMP IN THE AIR.",
 	"chargebeam": "HOLD THE SHOT BUTTON TO CHARGE A BLAST WORTH 3 SHOTS. RELEASE TO FIRE.",
 	"boostball": "WHILE ROLLED UP HOLD X TO CHARGE UP THEN LAUNCH IN THE DIRECTION YOU ARE FACING. SMASHES BLOCKS AND ENEMIES.",
+	"longbeam": "YOUR SHOT NOW TRAVELS THE FULL LENGTH OF THE SCREEN INSTEAD OF FIZZLING OUT EARLY.",
 }
 
 func collect_powerup(shape: String) -> void:
@@ -2340,6 +2344,7 @@ func collect_powerup(shape: String) -> void:
 		"hover": player.has_hover = true
 		"chargebeam": player.has_chargebeam = true
 		"boostball": player.has_boostball = true
+		"longbeam": player.has_longbeam = true
 	# Mario-style power-up get: freeze the whole world + pause the music while a jingle plays.
 	# The freeze covers BOTH banner phases: PHASE1_TIME for "X ACQUIRED!", then the rest for
 	# the description card.
