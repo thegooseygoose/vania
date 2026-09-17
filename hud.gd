@@ -90,7 +90,7 @@ func _paint(ci: CanvasItem) -> void:
 	if main.game_state == "play" and main.uses_rooms():
 		font.draw_text(ci, Vector2(150, 28),
 			"SECT " + str(main.current_section()) + "/" + str(main.section_count()),
-			1.0, Color(0.5, 1.0, 0.75))
+			1.0, Color(0.5, 1.0, 0.75), -1.0, true)
 
 	# fog-of-war minimap (top-left) during normal play — toggled by the SELECT button
 	if map_on and main.game_state == "play" and not main.show_level_card and not main.attract_mode:
@@ -221,30 +221,26 @@ func _paint_hp(ci: CanvasItem) -> void:
 	var cur: int = int(main.player.hp)
 	var maxhp: int = int(main.player.MAX_HP)
 	var frac: float = float(cur) / float(maxhp) if maxhp > 0 else 0.0
-	# Super Metroid style: a zero-padded number in a small bracket badge, then a
-	# segmented energy bar (small blocks, not a smooth fill) that drains right-to-left.
+	# a zero-padded number in a small bracket badge, then ONE solid fill bar (not segmented).
 	var col := Color(1.0, 0.2, 0.2)   # fixed red (matches the minimap panel's red border)
 	var bx := 92.0
 	var by := 9.0
+	var bar_x := bx + 8.0 + font.text_w("000", 1.0) + 6.0
+	var bar_w := 66.0
+	var bar_h := 9.0
+	# a solid black backing panel behind the whole readout so it reads clearly over any
+	# background (bright water, white flashes, the cyberpunk BG) instead of blending in
+	ci.draw_rect(Rect2(bx - 3.0, by - 3.0, bar_x + bar_w - bx + 6.0, 15.0), Color(0.0, 0.0, 0.0, 0.65))
 	# bracket badge + number — fixed red accent (matches the minimap panel's red border)
 	var badge := Color(1.0, 0.2, 0.2)
 	ci.draw_rect(Rect2(bx, by, 2, 9), badge)
 	ci.draw_rect(Rect2(bx, by, 6, 2), badge)
 	ci.draw_rect(Rect2(bx, by + 7, 6, 2), badge)
-	font.draw_text(ci, Vector2(bx + 8.0, by + 8.0), str(cur).pad_zeros(3), 1.0, badge)
-	# segmented bar
-	var seg_x := bx + 8.0 + font.text_w("000", 1.0) + 6.0
-	var seg_n := 20
-	var seg_w := 3.0
-	var seg_gap := 1.0
-	var filled: int = int(round(frac * float(seg_n)))
-	for i in range(seg_n):
-		var sx: float = seg_x + float(i) * (seg_w + seg_gap)
-		var scol: Color = col if i < filled else Color(0.2, 0.22, 0.28, 0.9)
-		ci.draw_rect(Rect2(sx, by, seg_w, 9), scol)
-	# thin end-caps so the bar reads as one gauge, not floating blocks
-	ci.draw_rect(Rect2(seg_x - 2.0, by, 1.0, 9), Color(0.6, 0.7, 0.85))
-	ci.draw_rect(Rect2(seg_x + float(seg_n) * (seg_w + seg_gap) - seg_gap + 1.0, by, 1.0, 9), Color(0.6, 0.7, 0.85))
+	font.draw_text(ci, Vector2(bx + 8.0, by + 8.0), str(cur).pad_zeros(3), 1.0, badge, -1.0, true)
+	# ONE solid bar: black outline, dark empty track, one continuous red fill (no gaps/segments)
+	ci.draw_rect(Rect2(bar_x - 1.0, by - 1.0, bar_w + 2.0, bar_h + 2.0), Color(0.0, 0.0, 0.0))
+	ci.draw_rect(Rect2(bar_x, by, bar_w, bar_h), Color(0.2, 0.22, 0.28, 0.9))
+	ci.draw_rect(Rect2(bar_x, by, bar_w * frac, bar_h), col)
 
 
 # A small fog-of-war minimap in the top-right: the whole level scaled to fit a fixed box,

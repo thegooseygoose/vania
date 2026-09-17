@@ -54,7 +54,21 @@ func text_w(s: String, scale: float) -> float:
 ## Draw `s` (auto-uppercased) with its baseline at pos.y, left edge pos.x.
 ## Pass center_w >= 0 to centre it in a box of that width. Coords are snapped
 ## to whole pixels — a fractional dest garbles NEAREST sampling at 1x scale.
+## Pass outline=true for a 1px black halo (readability over a busy/bright background) —
+## draws the same text in black at 8 surrounding offsets first, then the real color on top.
 func draw_text(ci: CanvasItem, pos: Vector2, s: String, scale: float,
+		col: Color, center_w := -1.0, outline := false) -> void:
+	if outline:
+		var oc := Color(0.0, 0.0, 0.0, col.a)
+		for ox in [-1.0, 0.0, 1.0]:
+			for oy in [-1.0, 0.0, 1.0]:
+				if ox == 0.0 and oy == 0.0:
+					continue
+				_draw_text_raw(ci, pos + Vector2(ox, oy) * scale, s, scale, oc, center_w)
+	_draw_text_raw(ci, pos, s, scale, col, center_w)
+
+
+func _draw_text_raw(ci: CanvasItem, pos: Vector2, s: String, scale: float,
 		col: Color, center_w := -1.0) -> void:
 	s = s.to_upper()
 	var pen := pos.x

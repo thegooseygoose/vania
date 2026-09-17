@@ -1321,6 +1321,7 @@ func _read_spawns() -> void:
 				36: etype = "urchin"                        # spiky floating mine: slow up/down bob in place
 				37: etype = "brood"                         # BROOD boss: grounded, 3-phase melee+projectile boss
 				38: etype = "talon"                         # TALON boss: flying, telegraph+dive-bomb boss
+				39: etype = "life_station"                  # health-refill tile: stand on it, it stops you and heals
 			var pos: Vector2
 			if etype == "piranha":
 				# centre on the 2-wide pipe. Normal (atlas 4): rim at the TOP of the painted
@@ -1692,6 +1693,14 @@ func _spawn_enemies() -> void:
 			vr.spawn(d["pos"])
 			enemies.append(vr)
 			continue
+		# Life station: a paintable health-refill tile. Standing on it locks your movement and
+		# slowly heals you (walk away to leave early).
+		if t == "life_station":
+			var lf = LifeStation.new()
+			lf.main = self
+			level.add_child(lf)
+			lf.global_position = d["pos"] - Vector2(0, 11)   # base rect sits right on the floor
+			continue
 		# Turret: clings to a ceiling, stationary, shoots at the player every 0.5s. Shot-only.
 		if t == "turret":
 			var tu = Enemy.new()
@@ -1824,6 +1833,8 @@ func _wire_powerups() -> void:
 		elif n is SaveStation:
 			n.main = self
 			save_stations.append(n)
+		elif n is LifeStation:
+			n.main = self
 		elif n is GoalStar:
 			n.main = self
 		elif n is GrabPoint:

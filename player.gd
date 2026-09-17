@@ -195,6 +195,7 @@ const SHRINK_FRAME := ["shrink4", "shrink1"]        # 0 small (D), 1 big (A)
 
 var invuln := 0.0
 var hurt_lock := 0.0             # brief control lock after a hit so the knockback shove reads
+var heal_lock := false          # standing on a LifeStation tile — movement input ignored while true
 var door_walk := 0              # !=0 = auto-walking through a door (Metroid transition), that direction
 var _door_step_done := false    # one-shot guard so the door-threshold step-up hop only fires once
 const DOOR_WALK_SPEED := 0.595  # fraction of walk speed for the door cutscene stroll (lower = slower; was 0.7, -15%)
@@ -442,6 +443,7 @@ func spawn(feet_pos: Vector2) -> void:
 	morphed = false
 	air_was_submerged = false
 	hurt_lock = 0.0                     # no leftover knockback lock into a fresh life
+	heal_lock = false                  # not standing on a LifeStation
 	door_walk = 0                      # not mid-door-transition
 	if sprite:
 		sprite.modulate = Color.WHITE   # clear any leftover underwater tint
@@ -753,7 +755,7 @@ func _update_alive(delta: float) -> void:
 	ducking = want_duck
 
 	var dir := 0.0
-	if not ducking and wall_lock <= 0.0 and hurt_lock <= 0.0:   # hold the wall-jump / knockback shove during the lock
+	if not ducking and wall_lock <= 0.0 and hurt_lock <= 0.0 and not heal_lock:   # hold the wall-jump / knockback shove during the lock, or stand still on a LifeStation
 		if Input.is_action_pressed("move_left"):
 			dir = -1.0
 			facing = -1
