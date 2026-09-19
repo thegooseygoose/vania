@@ -1,0 +1,16 @@
+extends SceneTree
+func _initialize(): call_deferred("_run")
+func _run():
+	var scn = load("res://Level5.tscn").instantiate()
+	var mk = scn.get_node("Markers")
+	var pw = scn.get_node("Powerups")
+	var et = scn.get_node("EnemyTiles")
+	print("Markers:")
+	for c in mk.get_used_cells(): print("  ", c, " atlas=", mk.get_cell_atlas_coords(c).x)
+	print("Powerups:")
+	for c in pw.get_used_cells(): print("  ", c, " atlas=", pw.get_cell_atlas_coords(c).x)
+	print("EnemyTiles:")
+	for c in et.get_used_cells(): print("  ", c, " atlas=", et.get_cell_atlas_coords(c).x)
+	var ps = scn.get_node("Spawns/PlayerStart")
+	print("PlayerStart pos=", ps.position)
+	quit()

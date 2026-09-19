@@ -1,0 +1,20 @@
+extends SceneTree
+func _initialize(): call_deferred("_run")
+func _run():
+	var src := Image.load_from_file("res://sprites/v sprites/BLOKZ.png")
+	var tiles := Image.load_from_file("res://tiles.png")
+	# BLOCK1 (X): crisp 14x14 crop, padded with solid black to fill 16x16 (no distortion, no gap)
+	var b1 := src.get_region(Rect2i(6, 30, 14, 14))
+	var pad1 := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	pad1.fill(Color(0, 0, 0, 1))
+	pad1.blit_rect(b1, Rect2i(0, 0, 14, 14), Vector2i(1, 1))
+	tiles.blit_rect(pad1, Rect2i(Vector2i.ZERO, Vector2i(16, 16)), Vector2i(67*16, 0))
+	# BLOCK2 (O): same treatment
+	var b2 := src.get_region(Rect2i(76, 34, 14, 14))
+	var pad2 := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	pad2.fill(Color(0, 0, 0, 1))
+	pad2.blit_rect(b2, Rect2i(0, 0, 14, 14), Vector2i(1, 1))
+	tiles.blit_rect(pad2, Rect2i(Vector2i.ZERO, Vector2i(16, 16)), Vector2i(68*16, 0))
+	tiles.save_png("res://tiles.png")
+	print("padded BLOKZ tiles (no distortion), saved")
+	quit()

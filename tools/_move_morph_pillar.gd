@@ -1,0 +1,17 @@
+extends SceneTree
+func _initialize(): call_deferred("_run")
+func _reown(node, root):
+	for c in node.get_children():
+		c.owner = root
+		_reown(c, root)
+func _run():
+	var scn = load("res://Level29.tscn").instantiate()
+	var pw = scn.get_node("Powerups")
+	pw.erase_cell(Vector2i(35, 206))
+	pw.set_cell(Vector2i(37, 199), 0, Vector2i(48, 0))   # on top of the left pillar (x37-38, top row 200)
+	_reown(scn, scn)
+	var packed := PackedScene.new()
+	packed.pack(scn)
+	var err := ResourceSaver.save(packed, "res://Level29.tscn")
+	print("moved morph pickup onto the pillar top at (37,199), saved err=%d" % err)
+	quit()
