@@ -250,6 +250,9 @@ func _mainmenu_input(event: InputEvent) -> void:
 			mm_in_extras = true; mm_sel = 0; queue_redraw()
 		elif slot == -2:            # BACK -> main menu
 			mm_in_extras = false; mm_sel = 0; queue_redraw()
+		elif slot == -3:            # AI -> flip between enemy.gd and enemy2.gd (stay on the menu)
+			Main.enemy_variant = 2 if Main.enemy_variant == 1 else 1
+			queue_redraw()
 		else:
 			pending_level = slot     # play-slot; launched after char select
 			_goto("charselect")
