@@ -38,7 +38,7 @@ var menu_sel := 0             # 0 = START GAME, 1 = LEVEL RECORDS, 2 = LEVEL SEL
 var mm_sel := 0             # index into the current menu list
 var mm_in_extras := false   # true = showing the EXTRAS submenu
 # each entry = [label, play-slot]. slot -1 = open EXTRAS, -2 = back to main.
-const MAIN_MENU := [["LEVEL A", 1], ["LEVEL C", 5], ["LEVEL Z", 12], ["EXTRAS", -1]]
+const MAIN_MENU := [["LEVEL A", 1], ["LEVEL C", 5], ["LEVEL Z", 12], ["EXTRAS", -1], ["AI", -3]]   # slot -3 = toggle enemy.gd / enemy2.gd
 const EXTRA_MENU := [["LEVEL B", 2], ["LEVEL D", 7], ["LEVEL E", 8], ["LEVEL F", 9], ["LEVEL G", 10], ["LEVEL H", 11], ["BRINSTAR", 13], ["ENEMIES", 14], ["BACK", -2]]
 func _menu_list() -> Array:
 	return EXTRA_MENU if mm_in_extras else MAIN_MENU
@@ -473,7 +473,10 @@ func _draw_mainmenu() -> void:
 		var sel: bool = (i == mm_sel)
 		if sel:
 			_file_box(Rect2(72.0, y - 11.0, VIEW_W - 144.0, 15.0), C_PROMPT)
-		font.draw_text(self, Vector2(0, y), String(lst[i][0]), 1.5, (C_PROMPT if sel else C_WHITE), w)
+		var label := String(lst[i][0])
+		if int(lst[i][1]) == -3:
+			label = "AI: ENEMY.GD" if Main.enemy_variant == 1 else "AI: ENEMY2.GD"
+		font.draw_text(self, Vector2(0, y), label, 1.5, (C_PROMPT if sel else C_WHITE), w)
 	if fmod(t, 0.8) < 0.5:
 		var hint := "UP DOWN PICK   ENTER SELECT   ESC BACK" if mm_in_extras else "UP DOWN PICK    ENTER START"
 		font.draw_text(self, Vector2(0, 214), hint, 1.0, C_WHITE, w)

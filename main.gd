@@ -278,6 +278,7 @@ var saved_tier := "big"         # Vania: Mario STARTS as big/mushroom Mario (not
 var level_num := 1              # 1 = world 1-1, 2 = world 1-2
 const LEVEL_COUNT := 14         # 1-1 … 1-11, LEVEL Z, BRINSTAR, then ENEMIES
 static var debug_start_level := 1   # DEBUG: level the intro's stage-select boots into
+static var enemy_variant := 1       # which enemy script spawns: 1 = enemy.gd (Enemy), 2 = enemy2.gd (Enemy2); picked on the main menu
 static var selected_char := "mario"  # character picked at the intro: "mario" or "kamen" (mask on Mario)
 
 # OVERCLOCK (time-slow): world_slow scales enemy/hazard delta (1.0 normal, <1 slowed); the player is unaffected.
@@ -1055,6 +1056,9 @@ func _scene_for_file(f: int) -> PackedScene:
 
 # The painted terrain's bounding box, IGNORING decorative black tiles (atlas BLACK_TILE_ATLAS) so
 # they never grow the level's camera bounds. Falls back to the full rect if the level is all-black.
+func _new_enemy():
+	return Enemy2.new() if enemy_variant == 2 else Enemy.new()
+
 func _terrain_extent_no_deco() -> Rect2i:
 	var min_c := Vector2i(2147483647, 2147483647)
 	var max_c := Vector2i(-2147483648, -2147483648)
@@ -1638,7 +1642,7 @@ func _spawn_enemies() -> void:
 			continue
 		# Zoomer: a surface-crawling Enemy (Metroid). Own kind so it doesn't get goomba AI.
 		if t == "zoomer":
-			var z = Enemy.new()
+			var z = _new_enemy()
 			z.main = self
 			z.kind = "zoomer"
 			add_child(z)
@@ -1659,7 +1663,7 @@ func _spawn_enemies() -> void:
 			continue
 		# Serp: a snail — a normal walking Enemy but its own kind so it crawls very slowly
 		if t == "serp":
-			var sp = Enemy.new()
+			var sp = _new_enemy()
 			sp.main = self
 			sp.kind = "serp"
 			add_child(sp)
@@ -1668,7 +1672,7 @@ func _spawn_enemies() -> void:
 			continue
 		# Bug: a flyer — rises to the player's head height, then chases. Own kind (no gravity/patrol).
 		if t == "bug":
-			var bg = Enemy.new()
+			var bg = _new_enemy()
 			bg.main = self
 			bg.kind = "bug"
 			add_child(bg)
@@ -1677,7 +1681,7 @@ func _spawn_enemies() -> void:
 			continue
 		# Metroid boss: a floating creature that slowly homes onto you. SHOT-only, many hits.
 		if t == "metroid":
-			var mt = Enemy.new()
+			var mt = _new_enemy()
 			mt.main = self
 			mt.kind = "metroid"
 			add_child(mt)
@@ -1686,7 +1690,7 @@ func _spawn_enemies() -> void:
 			continue
 		# Virus: a walking ground enemy with goomba-like patrol physics.
 		if t == "virus":
-			var vr = Enemy.new()
+			var vr = _new_enemy()
 			vr.main = self
 			vr.kind = "virus"
 			add_child(vr)
@@ -1695,7 +1699,7 @@ func _spawn_enemies() -> void:
 			continue
 		# Turret: clings to a ceiling, stationary, shoots at the player every 0.5s. Shot-only.
 		if t == "turret":
-			var tu = Enemy.new()
+			var tu = _new_enemy()
 			tu.main = self
 			tu.kind = "turret"
 			add_child(tu)
@@ -1704,7 +1708,7 @@ func _spawn_enemies() -> void:
 			continue
 		# Urchin: a stationary spiky mine that slowly bobs up and down in place.
 		if t == "urchin":
-			var ur = Enemy.new()
+			var ur = _new_enemy()
 			ur.main = self
 			ur.kind = "urchin"
 			add_child(ur)
@@ -1713,7 +1717,7 @@ func _spawn_enemies() -> void:
 			continue
 		# Brood boss: grounded, 3-phase melee (charge) + projectile boss. SHOT-only, many hits.
 		if t == "brood":
-			var bd = Enemy.new()
+			var bd = _new_enemy()
 			bd.main = self
 			bd.kind = "brood"
 			add_child(bd)
@@ -1722,14 +1726,14 @@ func _spawn_enemies() -> void:
 			continue
 		# Talon boss: flying, telegraph + dive-bomb boss. SHOT-only, many hits.
 		if t == "talon":
-			var tl = Enemy.new()
+			var tl = _new_enemy()
 			tl.main = self
 			tl.kind = "talon"
 			add_child(tl)
 			tl.spawn(d["pos"])
 			enemies.append(tl)
 			continue
-		var e = Enemy.new()
+		var e = _new_enemy()
 		e.main = self
 		# "purple_goomba" / "purple_koopa" share the base kind's physics + stomp
 		# rules, but flip on the purple art and their special AI.
