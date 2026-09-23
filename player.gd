@@ -97,10 +97,10 @@ var boomerangs: Array = []      # active shots in flight (up to MAX_ACTIVE_SHOTS
 const MAX_ACTIVE_SHOTS := 2     # fire rate: was locked to 1 shot in flight at a time; 2 = double rate
 var wall_dir := 0               # -1 wall on left, +1 wall on right, 0 none (wall-jump)
 var last_wall_dir := 0          # last wall jumped from, to alternate in a tight shaft
-const WALL_SLIDE_MAX := 46.0    # slow cling-slide down a wall (easy to time the jump)
-const WALLJUMP_X := 215.0       # strong shove ACROSS to the opposite wall
-const WALLJUMP_Y := -262.0      # good height per wall-jump so you climb the shaft
-const WALL_LOCK_TIME := 0.16    # briefly hold the shove so you actually reach the far wall
+const WALL_SLIDE_MAX := 40.0    # slow slide down any wall you touch in mid-air (everyone, no power-up needed)
+const WALLJUMP_X := 190.0       # Super Meat Boy style kick AWAY from the wall
+const WALLJUMP_Y := -285.0      # ...with a big pop upward
+const WALL_LOCK_TIME := 0.14    # briefly hold the kick so you clear the wall before steering back
 var wall_lock := 0.0
 var grappling := false
 var grapple_target := Vector2.ZERO
@@ -795,7 +795,8 @@ func _update_alive(delta: float) -> void:
 	# in mid-air — no need to hold into it. In a tight shaft touching both walls, it
 	# alternates off the last one so you zig-zag straight up.
 	wall_dir = 0
-	if has_walljump and not on_floor and not slamming and not grappling and not submerged:
+	# Everyone slides down walls (slow); only the WALL JUMP power-up lets you kick off them.
+	if not on_floor and not slamming and not grappling and not submerged:
 		var wr := _wall_ahead(1)
 		var wl := _wall_ahead(-1)
 		if wr and not wl:
@@ -832,8 +833,8 @@ func _update_alive(delta: float) -> void:
 			_jump_y0 = global_position.y
 		jump_held = true
 		main.sfx("jump_big" if (big or fire) else "jump_small")
-	elif jump_key and not on_floor and not jump_held and wall_dir != 0:
-		# DIAMOND: leap UP and ACROSS to the opposite wall
+	elif jump_key and not on_floor and not jump_held and wall_dir != 0 and has_walljump:
+		# WALL JUMP (Super Meat Boy style): kick off the wall you're sliding down
 		velocity.y = WALLJUMP_Y * (WATER_JUMP if submerged else 1.0)
 		velocity.x = -wall_dir * WALLJUMP_X * (WATER_MOVE if submerged else 1.0)
 		facing = -wall_dir
@@ -913,7 +914,7 @@ func _update_alive(delta: float) -> void:
 		if velocity.y >= 0.0:
 			stomp_bounce = false           # bounce arc peaked → normal control resumes
 		# DIAMOND wall-slide: hugging a wall caps the fall speed
-		if wall_dir != 0 and velocity.y > WALL_SLIDE_MAX:
+		if wall_dir != 0 and velocity.y > WALL_SLIDE_MAX and velocity.y >= 0.0:
 			velocity.y = WALL_SLIDE_MAX
 
 	was_rising = velocity.y < 0

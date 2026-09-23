@@ -39,7 +39,7 @@ var mm_sel := 0             # index into the current menu list
 var mm_in_extras := false   # true = showing the EXTRAS submenu
 # each entry = [label, play-slot]. slot -1 = open EXTRAS, -2 = back to main.
 const MAIN_MENU := [["LEVEL A", 1], ["LEVEL C", 5], ["LEVEL Z", 12], ["EXTRAS", -1], ["AI", -3]]   # slot -3 = toggle enemy.gd / enemy2.gd
-const EXTRA_MENU := [["LEVEL B", 2], ["LEVEL D", 7], ["LEVEL E", 8], ["LEVEL F", 9], ["LEVEL G", 10], ["LEVEL H", 11], ["BRINSTAR", 13], ["ENEMIES", 14], ["BACK", -2]]
+const EXTRA_MENU := [["LEVEL B", 2], ["LEVEL D", 7], ["LEVEL E", 8], ["LEVEL F", 9], ["LEVEL G", 10], ["LEVEL H", 11], ["BRINSTAR", 13], ["ENEMIES", 14], ["WALL JUMP", 15], ["BACK", -2]]
 func _menu_list() -> Array:
 	return EXTRA_MENU if mm_in_extras else MAIN_MENU
 var char_sel := 0          # character-select: 0=MARIO, 1=KAMEN
@@ -472,10 +472,11 @@ func _draw_mainmenu() -> void:
 	font.draw_text(self, Vector2(0, 54), ("EXTRAS" if mm_in_extras else "VANIA"), 3.0, C_PURPLE, w)
 	var lst: Array = _menu_list()
 	for i in lst.size():
-		var y := 90.0 + i * 15.0
+		var step: float = minf(15.0, 120.0 / float(lst.size()))   # squeeze long menus so they fit above the hint
+		var y := 90.0 + i * step
 		var sel: bool = (i == mm_sel)
 		if sel:
-			_file_box(Rect2(72.0, y - 11.0, VIEW_W - 144.0, 15.0), C_PROMPT)
+			_file_box(Rect2(72.0, y - 11.0, VIEW_W - 144.0, minf(15.0, step + 1.0)), C_PROMPT)
 		var label := String(lst[i][0])
 		if int(lst[i][1]) == -3:
 			label = "AI: ENEMY.GD" if Main.enemy_variant == 1 else "AI: ENEMY2.GD"

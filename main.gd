@@ -133,6 +133,7 @@ const LEVEL10_SCENE := preload("res://Level10.tscn")  # 1-10 (LEVEL G: hover-jet
 const LEVEL11_SCENE := preload("res://Level11.tscn")  # 1-11 (LEVEL H: all-new-powers test/showcase)
 const LEVEL28_SCENE := preload("res://Level28.tscn")  # LEVEL Z: blank sandbox (40-tile floor) to build a new level
 const LEVEL29_SCENE := preload("res://Level29.tscn")  # BRINSTAR: the Metroid opening region (start room + shaft), being built out
+const LEVEL31_SCENE := preload("res://Level31.tscn")  # WALL JUMP: slide-test wall + wall-jump pickup + a Meat-Boy shaft
 const LEVEL30_SCENE := preload("res://Level30.tscn")  # ENEMIES: one enemy type per room + a starting armory of every power-up, for testing
 const SOURCE_ID := 0
 
@@ -158,6 +159,7 @@ const LEVEL_ORDER := [
 	[28, "Z"],    # LEVEL Z: blank sandbox to build a new level
 	[29, "BR"],   # BRINSTAR: the Metroid world, opening region (built region by region)
 	[30, "EN"],   # ENEMIES: one enemy per room + starting armory, for testing
+	[31, "WJ"],   # WALL JUMP: wall-slide + Meat-Boy wall-jump test level
 ]
 # per-FILE geometry (intrinsic to each level's layout, keyed by scene file #):
 #   lw = width in tiles, flag/castle = flagpole & castle columns, dark = black bg,
@@ -176,6 +178,7 @@ const LEVEL_GEOMETRY := {
 	27: {"lw": 96, "flag": 90, "castle": 92, "dark": false, "under": false, "noflag": true},   # Vania 1-11 LEVEL H all-new-powers test
 	28: {"lw": 40, "flag": 34, "castle": 36, "dark": false, "under": false, "noflag": true},   # LEVEL Z: blank sandbox (40-tile floor)
 	29: {"lw": 580, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # METROID WORLD: full-size map from meto.png + x480-519 BROOD arena + x520-579 TALON arena
+	31: {"lw": 55, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # WALL JUMP test level
 	30: {"lw": 313, "flag": 0, "castle": 0, "dark": false, "under": false, "noflag": true},   # ENEMIES showcase: one room per enemy + armory + brood boss
 	4: {"lw": 318, "flag": 242, "castle": 245, "dark": true,  "under": true, "noflag": true, "camlock": 268},   # 1-2: no flag; camera stops at tile 268 to frame the ending chamber (one tile further left)
 	5: {"lw": 250, "flag": 242, "castle": 245, "dark": true,  "under": true},   # 3-2: underground, 1-2-style surface intro
@@ -276,7 +279,7 @@ var timing := true             # false once the flagpole is touched (freezes ela
 var game_state := "play"        # play | clear
 var saved_tier := "big"         # Vania: Mario STARTS as big/mushroom Mario (not small, not fire)
 var level_num := 1              # 1 = world 1-1, 2 = world 1-2
-const LEVEL_COUNT := 14         # 1-1 … 1-11, LEVEL Z, BRINSTAR, then ENEMIES
+const LEVEL_COUNT := 15         # 1-1 … 1-11, LEVEL Z, BRINSTAR, then ENEMIES
 static var debug_start_level := 1   # DEBUG: level the intro's stage-select boots into
 static var enemy_variant := 1       # which enemy script spawns: 1 = enemy.gd (Enemy), 2 = enemy2.gd (Enemy2); picked on the main menu
 static var selected_char := "mario"  # character picked at the intro: "mario" or "kamen" (mask on Mario)
@@ -1028,6 +1031,8 @@ func _physics_process(delta: float) -> void:
 # LEVEL SCENE (Level1.tscn — TileMapLayer terrain + Spawns markers)
 # =========================================================================
 func _scene_for_file(f: int) -> PackedScene:
+	if f == 31:
+		return LEVEL31_SCENE
 	if f == 30:
 		return LEVEL30_SCENE
 	if f == 29:
