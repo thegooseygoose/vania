@@ -102,6 +102,12 @@ const WALLJUMP_X := 190.0       # Super Meat Boy style kick AWAY from the wall
 const WALLJUMP_Y := -285.0      # ...with a big pop upward
 const WALL_LOCK_TIME := 0.14    # briefly hold the kick so you clear the wall before steering back
 var wall_lock := 0.0
+var wall_coyote := 0.0          # brief grace after leaving a wall: a jump press still counts (Meat Boy forgiveness)
+var wall_coyote_dir := 0
+var _wall_hop := false          # rising from a wall jump: releasing Jump early cuts the hop short (control)
+const WALL_COYOTE := 0.10
+const WALL_CLIMB_X := 55.0      # holding INTO the wall: small nudge away so you re-stick and can jump the SAME wall again
+const WALL_CLIMB_LOCK := 0.04
 var grappling := false
 var grapple_target := Vector2.ZERO
 var rope_len := 0.0              # fixed pendulum length while swinging
@@ -804,16 +810,24 @@ func _update_alive(delta: float) -> void:
 		elif wl and not wr:
 			wall_dir = -1
 		elif wr and wl:
-			if last_wall_dir != 0:
-				wall_dir = -last_wall_dir
-			elif Input.is_action_pressed("move_left"):
+			if Input.is_action_pressed("move_left"):
 				wall_dir = -1
 			elif Input.is_action_pressed("move_right"):
 				wall_dir = 1
+			elif last_wall_dir != 0:
+				wall_dir = -last_wall_dir
 			else:
 				wall_dir = facing
 	elif on_floor:
 		last_wall_dir = 0   # reset the zig-zag when you touch ground
+	# wall coyote: remember the wall for a moment after you leave it
+	if wall_dir != 0:
+		wall_coyote = WALL_COYOTE
+		wall_coyote_dir = wall_dir
+	elif on_floor:
+		wall_coyote = 0.0
+	else:
+		wall_coyote = maxf(0.0, wall_coyote - delta)
 
 	# jump — fresh press only (allowed straight out of a duck, SMB-style)
 	var jump_key := Input.is_action_pressed("jump")
@@ -833,13 +847,22 @@ func _update_alive(delta: float) -> void:
 			_jump_y0 = global_position.y
 		jump_held = true
 		main.sfx("jump_big" if (big or fire) else "jump_small")
-	elif jump_key and not on_floor and not jump_held and wall_dir != 0 and has_walljump:
-		# WALL JUMP (Super Meat Boy style): kick off the wall you're sliding down
+	elif jump_key and not on_floor and not jump_held and has_walljump and (wall_dir != 0 or wall_coyote > 0.0):
+		# WALL JUMP (Super Meat Boy style). Holding INTO the wall = a small hop that keeps you on it
+		# so you can keep jumping the SAME wall up; otherwise a big kick AWAY (to the opposite wall).
+		var wd: int = wall_dir if wall_dir != 0 else wall_coyote_dir
+		var into: bool = (wd == 1 and Input.is_action_pressed("move_right")) or (wd == -1 and Input.is_action_pressed("move_left"))
 		velocity.y = WALLJUMP_Y * (WATER_JUMP if submerged else 1.0)
-		velocity.x = -wall_dir * WALLJUMP_X * (WATER_MOVE if submerged else 1.0)
-		facing = -wall_dir
-		wall_lock = WALL_LOCK_TIME
-		last_wall_dir = wall_dir
+		if into:
+			velocity.x = -wd * WALL_CLIMB_X
+			wall_lock = WALL_CLIMB_LOCK
+		else:
+			velocity.x = -wd * WALLJUMP_X * (WATER_MOVE if submerged else 1.0)
+			facing = -wd
+			wall_lock = WALL_LOCK_TIME
+		last_wall_dir = wd
+		wall_coyote = 0.0
+		_wall_hop = true
 		jump_held = true
 		air_jump_used = false      # a wall jump refreshes the mid-air jump
 		_nes_jump = false          # wall jump = an extra: keeps its own arc (original rise gravity)
@@ -856,6 +879,10 @@ func _update_alive(delta: float) -> void:
 		main.sfx("jump_big" if (big or fire) else "jump_small")
 	elif not jump_key:
 		jump_held = false
+		# variable wall-jump height: let go early for a shorter, more controlled hop
+		if _wall_hop and velocity.y < -140.0:
+			velocity.y = -140.0
+		_wall_hop = false
 
 	# TRIANGLE ground-pound: press Down in mid-air → FREEZE in the duck pose for a
 	# moment, then CRASH straight down hard and break bricks below.

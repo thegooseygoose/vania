@@ -1,10 +1,10 @@
-[gd_scene format=4]
+[gd_scene format=4 uid="uid://p4gwq11khq71"]
 
-[ext_resource type="TileSet" path="res://tiles.tileset.tres" id="1_qtc2y"]
-[ext_resource type="TileSet" path="res://tiles_markers.tileset.tres" id="2_7mobp"]
-[ext_resource type="TileSet" path="res://tiles_powerups.tileset.tres" id="3_gw674"]
-[ext_resource type="TileSet" path="res://enemy_tiles.tileset.tres" id="4_7cru6"]
-[ext_resource type="TileSet" path="res://coin_tiles.tileset.tres" id="5_rbtum"]
+[ext_resource type="TileSet" uid="uid://bgigmyhw2417a" path="res://tiles.tileset.tres" id="1_qtc2y"]
+[ext_resource type="TileSet" uid="uid://c76pnrms2syvg" path="res://tiles_markers.tileset.tres" id="2_7mobp"]
+[ext_resource type="TileSet" uid="uid://disucjitm6xkb" path="res://tiles_powerups.tileset.tres" id="3_gw674"]
+[ext_resource type="TileSet" uid="uid://bkpthyv5r5oqa" path="res://enemy_tiles.tileset.tres" id="4_7cru6"]
+[ext_resource type="TileSet" uid="uid://dtml5nti0lum5" path="res://coin_tiles.tileset.tres" id="5_rbtum"]
 
 [node name="LevelWallJump" type="Node2D" unique_id=376599240]
 
@@ -17,7 +17,7 @@ tile_map_data = PackedByteArray("AAAwAAMAAAATAAAAAAA=")
 tile_set = ExtResource("2_7mobp")
 
 [node name="Powerups" type="TileMapLayer" parent="." unique_id=463641805]
-tile_map_data = PackedByteArray("AAAYAAwAAAA1AAAAAAA=")
+tile_map_data = PackedByteArray("AAAKAAwAAAA1AAAAAAA=")
 tile_set = ExtResource("3_gw674")
 
 [node name="EnemyTiles" type="TileMapLayer" parent="." unique_id=551301704]
