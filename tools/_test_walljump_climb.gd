@@ -14,7 +14,7 @@ func _run() -> void:
 	var jumps := 0; var best_y := 9999.0; var jump_on := false; var last_press := -99
 	for f in range(600):
 		var press := false
-		if p.is_on_floor() or (p.wall_dir != 0 and p.velocity.y > -60.0): press = true
+		if p.is_on_floor() or ((p.wall_dir != 0 or p.wall_coyote > 0.0) and p.velocity.y > -60.0): press = true
 		if press and not jump_on and f - last_press > 6:
 			Input.action_press("jump"); jump_on = true; last_press = f; jumps += 1
 		elif jump_on and f - last_press >= 3:
