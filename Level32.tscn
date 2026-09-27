@@ -17,7 +17,7 @@ tile_map_data = PackedByteArray("AABkAAIAAAATAAAAAAA=")
 tile_set = ExtResource("2_gpesi")
 
 [node name="Powerups" type="TileMapLayer" parent="." unique_id=119591480]
-tile_map_data = PackedByteArray("AAAHAAwAAAAxAAAAAAAKAAwAAAA1AAAAAAANAAwAAAA3AAAAAAAbAAwAAABVAAAAAAA=")
+tile_map_data = PackedByteArray("AAAHAAwAAAAxAAAAAAAKAAwAAAA1AAAAAAANAAwAAAA3AAAAAAAbAAwAAABVAAAAAAAUAAwAAABWAAAAAAA=")
 tile_set = ExtResource("3_0fp7l")
 
 [node name="EnemyTiles" type="TileMapLayer" parent="." unique_id=1584888376]

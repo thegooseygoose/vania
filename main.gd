@@ -2111,7 +2111,7 @@ func save_checkpoint(pos: Vector2) -> void:
 		"waterwalk": player.has_waterwalk, "dash": player.has_dash,
 		"riderkick": player.has_riderkick, "timeslow": player.has_timeslow, "hover": player.has_hover,
 		"boostball": player.has_boostball, "chargebeam": player.has_chargebeam,
-		"longbeam": player.has_longbeam,
+		"longbeam": player.has_longbeam, "screwattack": player.has_screwattack,
 	}
 	checkpoint_active = true
 	checkpoint_pos = pos
@@ -2255,7 +2255,7 @@ const SAVE_TILE_ATLAS := 85     # save-station marker (Powerups layer) = spawns 
 const POWERUP_TILE_SHAPE := {48: "circle", 49: "square", 50: "triangle", 51: "star",
 	52: "boomerang", 53: "diamond", 54: "waterwalk", 55: "dash", 56: "riderkick",
 	57: "timeslow", 58: "hover", 65: "balljump", 66: "bomb",
-	81: "chargebeam", 82: "boostball", 83: "longbeam"}
+	81: "chargebeam", 82: "boostball", 83: "longbeam", 86: "screwattack"}
 	# NOTE: 59 is NOT free — it's BIKE_TILE_ATLAS (bike spawner), so the bomb lives at 66.
 const LIFE_TILE_ATLAS := 84    # health-refill icon (Powerups layer) -- unlike the above, NEVER erased
 
@@ -2374,7 +2374,7 @@ const POWERUP_NAME := {
 	"star": "GRAPPLE BEAM", "boomerang": "SHOT", "waterwalk": "GRAVITY SUIT",
 	"dash": "DASH ATTACK", "riderkick": "RIDER KICK", "timeslow": "OVERCLOCK",
 	"hover": "HOVER JETS", "chargebeam": "CHARGE BEAM", "boostball": "BOOST BALL",
-	"longbeam": "LONG BEAM",
+	"longbeam": "LONG BEAM", "screwattack": "SCREW ATTACK",
 }
 const POWERUP_DESC := {
 	"square": "PRESS A TO JUMP WHILE IN THE AIR AND JUMP AGAIN.",
@@ -2393,6 +2393,7 @@ const POWERUP_DESC := {
 	"chargebeam": "HOLD THE SHOT BUTTON TO CHARGE A BLAST WORTH 3 SHOTS. RELEASE TO FIRE.",
 	"boostball": "WHILE ROLLED UP HOLD X TO CHARGE UP THEN LAUNCH IN THE DIRECTION YOU ARE FACING. SMASHES BLOCKS AND ENEMIES.",
 	"longbeam": "YOUR SHOT NOW TRAVELS THE FULL LENGTH OF THE SCREEN INSTEAD OF FIZZLING OUT EARLY.",
+	"screwattack": "ANY JUMP IS NOW A SPINNING ATTACK. NO BUTTON — JUST BE IN THE AIR TO KILL ON CONTACT.",
 }
 
 func collect_powerup(shape: String) -> void:
@@ -2413,6 +2414,7 @@ func collect_powerup(shape: String) -> void:
 		"chargebeam": player.has_chargebeam = true
 		"boostball": player.has_boostball = true
 		"longbeam": player.has_longbeam = true
+		"screwattack": player.has_screwattack = true
 	# Mario-style power-up get: freeze the whole world + pause the music while a jingle plays.
 	# The freeze covers BOTH banner phases: PHASE1_TIME for "X ACQUIRED!", then the rest for
 	# the description card.
@@ -2712,12 +2714,18 @@ func _update_gameplay_collisions() -> void:
 
 	# player vs enemies — METROID rules: there is NO stomping. ANY contact with any enemy hurts the
 	# PLAYER, never the enemy. Enemies are killed only by weapons (the shot/boomerang, dash, rider-kick,
-	# fireball) — each handled in its own loop. hurt() itself no-ops while dashing / rider-kicking /
-	# invulnerable, so those attacks stay safe on contact.
+	# fireball, SCREW ATTACK) — each handled in its own loop. hurt() itself no-ops while dashing /
+	# rider-kicking / screw-active / invulnerable, so those attacks stay safe on contact.
 	for e in enemies:
 		if not e.active or e.dead:
 			continue
 		if not pr.intersects(e.get_rect()):
+			continue
+		if player.screw_active():
+			if e.has_method("dash_kill"):
+				e.dash_kill(1 if player.global_position.x <= e.global_position.x else -1)
+			elif e.has_method("knock_out"):
+				e.knock_out(1 if player.global_position.x <= e.global_position.x else -1)
 			continue
 		player.hurt()
 

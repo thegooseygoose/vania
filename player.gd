@@ -64,6 +64,9 @@ const DASH_TIME := 0.20
 const DASH_COOLDOWN := 0.35
 var has_riderkick := false        # RIDER KICK: in the AIR, press Dash to dive-kick down-forward (Kamen's finisher)
 var riderkicking := false
+var has_screwattack := false      # SCREW ATTACK: any mid-air jump becomes an invulnerable spinning
+                                   # attack — no button, just be airborne to kill on contact
+const SCREW_SPIN_RATE := 14.0     # radians/sec the sprite spins while the attack is active
 var has_timeslow := false         # OVERCLOCK: press to briefly slow the world (not you)
 var has_boostball := false        # BOOST BALL: while morphed, hold Dash + a direction to charge a
                                    # high-speed roll that smashes brittle blocks and enemies on contact
@@ -435,6 +438,7 @@ func spawn(feet_pos: Vector2) -> void:
 	has_hover = bool(ab.get("hover", false))
 	hover_fuel = HOVER_FUEL_MAX
 	has_boostball = bool(ab.get("boostball", false))
+	has_screwattack = bool(ab.get("screwattack", false))
 	has_chargebeam = bool(ab.get("chargebeam", false))
 	has_longbeam = bool(ab.get("longbeam", false))
 	boosting = false
@@ -1017,6 +1021,13 @@ func _update_alive(delta: float) -> void:
 		walk_anim = 0.0
 
 	_animate()
+	# SCREW ATTACK: any time you're airborne with it, you're spinning (no button) — a
+	# continuous visual cue that contact currently kills enemies instead of hurting you.
+	if has_screwattack and not grounded and not morphed and not dashing and not riderkicking \
+			and not boosting and not grappling and not extending and not door_walk:
+		sprite.rotation += SCREW_SPIN_RATE * delta
+	elif grounded:
+		sprite.rotation = 0.0
 	# HIT FLASH: while invulnerable after taking a hit, flash the sprite RED (~10 Hz) so the hit
 	# reads clearly (stays visible; the red tint pulses on and off).
 	if invuln > 0.0:
@@ -1910,9 +1921,15 @@ func _update_transform(delta: float) -> void:
 		transforming = false
 		_animate()
 
+# SCREW ATTACK: airborne + the ability + not doing something else that already has its own
+# rotation/attack (morphed, dashing, rider-kicking, boosting, grappling, door transition).
+func screw_active() -> bool:
+	return has_screwattack and not is_on_floor() and not morphed and not dashing \
+		and not riderkicking and not boosting and not grappling and not extending and not door_walk
+
 func hurt() -> void:
-	if invuln > 0.0 or dead or transforming or dashing or riderkicking or boosting:
-		return  # dashing / rider-kicking = invulnerable attacks (you kill on contact, take no damage)
+	if invuln > 0.0 or dead or transforming or dashing or riderkicking or boosting or screw_active():
+		return  # dashing / rider-kicking / screw attack = invulnerable attacks (kill on contact, no damage taken)
 	# numeric health: every hit costs HP_PER_HIT (10); at 0 you die. (Fire power is kept until death.)
 	hp -= HP_PER_HIT
 	if hp <= 0:
