@@ -631,8 +631,8 @@ func _update_alive(delta: float) -> void:
 	if riderkicking:
 		_riderkick_physics(delta)
 		return
-	# DASH (own button: F / LB) — ground only
-	if has_dash and dash_cd <= 0.0 and on_floor and not extending and not submerged \
+	# DASH (own button: F / LB) — on the ground OR in mid-air
+	if has_dash and dash_cd <= 0.0 and not extending and not submerged \
 			and Input.is_action_just_pressed("dash"):
 		dashing = true
 		dash_timer = DASH_TIME
