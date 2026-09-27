@@ -1,10 +1,10 @@
 extends SceneTree
-## Builds Level32.tscn = "POWER MIX" (EXTRAS menu): a course that needs DOUBLE JUMP, WALL JUMP and the
-## BOOST BALL (plus MORPH BALL, which boost needs). All four pickups sit in the opening room.
-##  A) x0-30 floor + the 4 pickups + a save block
+## Builds Level32.tscn = "POWER MIX" (EXTRAS menu): a course that needs DOUBLE JUMP, WALL JUMP and DASH.
+## All three pickups sit in the opening room.
+##  A) x0-30 floor + the 3 pickups + a save block
 ##  B) two 7-tile pits (single jump can't cross; double jump can), the 2nd landing is 2 tiles higher
 ##  C) a 5-wide wall-jump shaft (walk in under the left wall, kick up to the ledge)
-##  D) a ledge with a tall breakable wall (BOOST ball smashes a 1-tile tunnel; stay rolled to pass) -> goal
+##  D) a ledge with a tall breakable wall (a DASH smashes a full body-height doorway through it) -> goal
 const G := 0
 const BRK := 68   # breakable block atlas
 func _initialize(): call_deferred("_run")
@@ -25,8 +25,7 @@ func _run() -> void:
 		t.call(x, 13); t.call(x, 14)
 	pw.set_cell(Vector2i(7, 12), 0, Vector2i(49, 0))    # double jump
 	pw.set_cell(Vector2i(10, 12), 0, Vector2i(53, 0))   # wall jump
-	pw.set_cell(Vector2i(13, 12), 0, Vector2i(48, 0))   # morph ball
-	pw.set_cell(Vector2i(16, 12), 0, Vector2i(82, 0))   # boost ball
+	pw.set_cell(Vector2i(13, 12), 0, Vector2i(55, 0))   # dash
 	pw.set_cell(Vector2i(27, 12), 0, Vector2i(85, 0))   # save block (spawns a SaveStation)
 	# B) pit 1 = x31..37 (floor missing), floor x38..49, pit 2 = x50..56, raised landing rows 11-14 x57..80
 	for x in range(38, 50):
@@ -44,7 +43,7 @@ func _run() -> void:
 	# D) ledge rows 3-4 from x75 to x104 (stand on row 2)
 	for x in range(75, 105):
 		t.call(x, 3); t.call(x, 4)
-	# tall breakable wall at x90, rows -5..2 (8 tall: can't be jumped, boost smashes a 1-tile tunnel)
+	# tall breakable wall at x90, rows -5..2 (8 tall: can't be jumped; a dash smashes a 2-tile doorway)
 	for y in range(-5, 3):
 		for x in [90]:
 			t.call(x, y, BRK)
